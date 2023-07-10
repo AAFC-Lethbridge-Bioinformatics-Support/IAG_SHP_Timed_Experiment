@@ -15,9 +15,11 @@ nmds_out <- glue("{taxa_out}/NMDS")
 indicspecies_out <- glue("{taxa_out}/indicspecies")
 alphadiv_out <- glue("{taxa_out}/alpha_diversity")
 
-create_dir_if_nonexistant <- function(path) {
-  ifelse(!dir.exists(path), dir.create(path, mode = "777"), FALSE)
-}
+# Create output directories
+output_dirs <- c(main_out, taxa_out, nmds_out, indicspecies_out, alphadiv_out)
+invisible(lapply(output_dirs, dir.create, showWarnings = FALSE))
+
+
 # 0.2 Read in metadata ----------------------------------------------------
 timed_meta <- get_timed_metadata()
 
@@ -26,30 +28,24 @@ timed_meta <- get_timed_metadata()
 taxa_long_deep <- read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
 taxa_long_shallow <- read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
 
-# reformat some column aspects
-taxa_long <- taxa_long_shallow |>
+# Reformat some columns
+taxa_1_long <- taxa_long_shallow |>
   mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
   rename("taxon_lineage" = taxon_name) |>
   mutate(taxon_lineage = str_replace(taxon_lineage, "cellular organisms;", ""))
 
-# remove non-Timed experiment samples, filter unclassified, apply read
-# thresholds at 0.01% on per-sample basis
-taxa_long_filtered <- taxa_long |>
-  filter(sample %in% timed_meta$sample) |>
+# Remove pre-2020 and non-Timed experiment samples, filter unclassified taxa,
+# remove suspect sample 0597, and apply 0.01% per-sample threshold
+taxa_2_filtered <- taxa_1_long |>
+  filter(sample %in% filter(timed_meta, Year == 2020)$sample) |>
   filter(!str_detect(taxon_lineage, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]")) |>
-  mutate(sample_threshold = sum(reads)*0.0001, .by = sample) |>
-  filter(reads > sample_threshold) |>
-  select(-sample_threshold)
-
-# recalculate percentage so that it adds to 100 after removing unclassified and
-# applying the threshold
-taxa_longf_total <- taxa_long_filtered |>
-  mutate(recalculated_percent = reads/sum(reads), .by = sample)
-
-# remove suspect sample and pre-2020 samples
-taxa_longf_total <- taxa_longf_total |>
   filter(sample != "S00JY-0597") |>
-  filter(sample %in% filter(timed_meta, Year == 2020)$sample)
+  filter(reads > sum(reads)*0.0001, .by = sample)
+
+# Calculate relative abundance
+taxa_3_relabund <- taxa_2_filtered |>
+  mutate(rel_abund = reads/sum(reads), .by = sample)
+
 
 # 2. Perform NMDS, ANOSIM and Indicator Species Analyses plots --------------------
 anosim_result_file <- glue("{nmds_out}/anosim_{taxa_level}.txt")
@@ -68,13 +64,13 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
   }
 
   # filter for the appropriate subset of samples
-  taxa_long_foi <- taxa_longf_total |>
+  taxa_long_foi <- taxa_3_relabund |>
     filter(sample %in% filtered_meta$sample)
 
   # Pivot and make proportional for proper ANOSIM format
   taxa_wide_foi <- taxa_long_foi |>
     select(-c(file, taxon_id, percent, reads)) |>
-    pivot_wider(names_from = taxon_lineage, values_from = recalculated_percent)
+    pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
 
   # a meta table with the same sample order used for the abundance matrix
   foi_metadata <- select(taxa_wide_foi, sample) |>
@@ -171,13 +167,13 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
     }
 
     # filter for the appropriate subset of samples
-    taxa_long_foi <- taxa_longf_total |>
+    taxa_long_foi <- taxa_3_relabund |>
       filter(sample %in% filtered_meta$sample)
 
     # Pivot and make proportional for proper ANOSIM format
     taxa_wide_foi <- taxa_long_foi |>
       select(-c(file, taxon_id, percent, reads)) |>
-      pivot_wider(names_from = taxon_lineage, values_from = recalculated_percent)
+      pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
 
     # a meta table with the same sample order used for the abundance matrix
     foi_metadata <- merge(taxa_wide_foi$sample, filtered_meta,
@@ -326,8 +322,8 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
   }
 }
 
-taxa_wide_reads <- taxa_longf_total |>
-  select(-c(file, taxon_id, percent, recalculated_percent)) |>
+taxa_wide_reads <- taxa_3_relabund |>
+  select(-c(file, taxon_id, percent, rel_abund)) |>
   pivot_wider(names_from = taxon_lineage, values_from = reads)
 
 taxa_wide_reads[is.na(taxa_wide_reads)] <- 0
