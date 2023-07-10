@@ -18,34 +18,9 @@ alphadiv_out <- glue("{taxa_out}/alpha_diversity")
 create_dir_if_nonexistant <- function(path) {
   ifelse(!dir.exists(path), dir.create(path, mode = "777"), FALSE)
 }
+# 0.2 Read in metadata ----------------------------------------------------
+timed_meta <- get_timed_metadata()
 
-lapply(c(main_out, taxa_out, nmds_out, indicspecies_out, alphadiv_out),
-       create_dir_if_nonexistant)
-
-# ---- 0.2 Read in and tidy timed metadata -----------------------------------------
-timed_meta <- read_csv("../metadata/Metadata-IAG-Timed2-v3_2.csv")
-# remove all NA rows, remove blanks
-timed_meta <- timed_meta[rowSums(is.na(timed_meta)) != ncol(timed_meta),] |>
-  rename(sample = `MBI_ID`) |>
-  filter(!str_detect(Site, "B\\d"))
-
-timed_meta <- timed_meta |>
-  mutate(Month = case_when(Year == "1998" | Year == "2007" ~ Year,
-                           TRUE ~ Month))
-timed_meta$Month <- ordered(timed_meta$Month, levels = c("0",
-                                                         "0.07",
-                                                         "0.5",
-                                                         "1",
-                                                         "3",
-                                                         "6",
-                                                         "12",
-                                                         "18",
-                                                         "1998",
-                                                         "2007"))
-timed_meta$Year <- as.character(timed_meta$Year)
-
-# how many NA's are there in each column?
-sapply(timed_meta, function(x) sum(length(which(is.na(x)))))
 
 # ---- 1. Read in and filter taxonomy data ----------------------------------------
 taxa_long_deep <- read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))

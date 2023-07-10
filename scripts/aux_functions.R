@@ -9,6 +9,34 @@ color_palette <- c("#89C5DA", "#DA5724", "#689030", "#CE50CA", "#3F4921",
                    "#D14285", "#AD6F3B", "#CD9BCD", "#74D944", "#6DDE88", "#652926", "#7FDCC0",
                    "#C84248", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#38333E", "#599861")
 
+# Read in Timed metadata and return a reformatted version
+get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv") {
+
+  message("Loading metadata at path ", path)
+
+  timed_meta <- read_csv(path)
+  # remove rows with all NA, remove blanks
+  timed_meta <- timed_meta[rowSums(is.na(timed_meta)) != ncol(timed_meta),] |>
+    rename(sample = `MBI_ID`) |>
+    filter(!str_detect(Site, "B\\d")) # Blank samples denoted by B#
+
+  timed_meta <- timed_meta |>
+    mutate(Month = case_when(Year == "1998" | Year == "2007" ~ Year,
+                             TRUE ~ Month))
+  timed_meta$Month <- ordered(timed_meta$Month, levels = c("0",
+                                                           "0.07",
+                                                           "0.5",
+                                                           "1",
+                                                           "3",
+                                                           "6",
+                                                           "12",
+                                                           "18",
+                                                           "1998",
+                                                           "2007"))
+  timed_meta$Year <- as.character(timed_meta$Year)
+  timed_meta
+}
+
 #' Save and/or return an NMDS plot
 #'
 #' @param df a dataframe with NMDS1, NMDS2, and metadata factor columns

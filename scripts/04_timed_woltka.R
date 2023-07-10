@@ -9,31 +9,8 @@ source("scripts/aux_functions.R")
 outdir <- "results/woltka/rpk/filtered/"
 dir.create(outdir)
 
-# ---- 0.1 Read in and tidy timed metadata -------------------------------------
-timed_meta <- read_csv("../metadata/Metadata-IAG-Timed2-v3_2.csv")
-# remove all NA rows, remove blanks
-timed_meta <- timed_meta[rowSums(is.na(timed_meta)) != ncol(timed_meta),] |>
-  rename(sample = `MBI_ID`) |>
-  filter(!str_detect(Site, "B\\d"))
-
-timed_meta <- timed_meta |>
-  mutate(Month = case_when(Year == "1998" | Year == "2007" ~ Year,
-                           TRUE ~ Month))
-timed_meta$Month <- ordered(timed_meta$Month, levels = c("0",
-                                                         "0.07",
-                                                         "0.5",
-                                                         "1",
-                                                         "3",
-                                                         "6",
-                                                         "12",
-                                                         "18",
-                                                         "1998",
-                                                         "2007"))
-timed_meta$Year <- as.character(timed_meta$Year)
-
-# how many NA's are there in each column?
-sapply(timed_meta, function(x) sum(length(which(is.na(x)))))
-
+# 0.2 Read in metadata ----------------------------------------------------
+timed_meta <- get_timed_metadata()
 
 
 sample_read_counts <- read.csv("data/qcd_read_count.txt", header = FALSE)
