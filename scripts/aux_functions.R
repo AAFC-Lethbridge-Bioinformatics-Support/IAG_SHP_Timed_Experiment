@@ -37,6 +37,85 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
   timed_meta
 }
 
+# Run ANOSIM, NMDS, and indicspecies analyses. These are grouped because of
+# common input format
+run_ano_nmds_indic <- function(count_table, metadata, foi){
+  random_seed <- 86752155
+  # specific filters for Month and Process factors
+  if (foi == "Month"){
+    foi_metadata <- filter(metadata , Process == "Ground")
+  } else if (foi == "Process") {
+    foi_metadata <- filter(metadata, Month == "0")
+  } else {
+    foi_metadata <- metadata
+  }
+
+  # Skip the metadata factor if there is only 1 distinct value in it after filtering
+  # if(length(unique(foi_metadata[[foi]])) < 2) { next }
+
+  # Ensure metadata doesn't have samples that aren't in count table and vice versa
+  foi_metadata <- filter(foi_metadata, sample %in% count_table$sample)
+  taxa_foi <- filter(count_table, sample %in% foi_metadata$sample)
+
+  # Ensure metadata sample order is identical to that of count table
+  foi_metadata <- select(taxa_foi, sample) |>
+    left_join(foi_metadata)
+
+  rel_abund_matrix_foi <- taxa_foi |>
+    column_to_rownames(var = "sample") |>
+    as.matrix()
+  rel_abund_matrix_foi[is.na(rel_abund_matrix_foi)] <- 0
+
+  # ASSERTION
+  all(rownames(rel_abund_matrix_foi) == foi_metadata$sample) |>
+    assertthat::assert_that(msg = "Count table and metadata table do not have identical sample columns. They must match in value and order.")
+
+  set.seed(random_seed)
+  ano_foi <- anosim(rel_abund_matrix_foi, foi_metadata[[foi]], distance = "bray", permutations = 999)
+
+  ano_string_foi <- glue("ANOSIM p-val: {ano_foi$signif} R-stat: {ano_foi$statistic}")
+
+  # Perform NMDS ----
+  set.seed(random_seed)
+  nmds_foi <-  metaMDS(rel_abund_matrix_foi, distance = "bray")
+  plot(nmds_foi)
+
+  nmds_scores_foi <- as.data.frame(scores(nmds_foi)$sites) |>
+    rownames_to_column("sample")
+  # Merge NMDS results with metadata
+  nmds_scores_foi <- left_join(nmds_scores_foi, foi_metadata)
+
+  if (foi == "Month") {
+    # Collapse Month to fewer groupings for indicspecies analysis
+    foi_metadata <- foi_metadata |>
+      mutate(month_group = case_when(Month < 1 ~ "<1 month",
+                                     Month <= 6 ~ "1-6 months",
+                                     Month <= 18 ~ "12-18 months"))
+    indic_foi <- "month_group"
+  } else {
+    indic_foi <- foi
+  }
+
+
+  # Perform indicspecies analysis  ----
+  set.seed(random_seed)
+  indic_by_foi = multipatt(rel_abund_matrix_foi, foi_metadata[[indic_foi]], func = "r.g",
+                           control = how(nperm=9999))
+  # Format significant indicspecies results in table
+  indic_foi_tbl <- indic_by_foi$sign |>
+    mutate("significant" = p.value <= 0.05) |>
+    rownames_to_column("taxon_lineage") |>
+    arrange(p.value, -stat)
+
+  # Return relevant analysis outputs
+  list(anosim = ano_foi,
+       ano_string = ano_string_foi,
+       nmds = nmds_foi,
+       nmds_scores = nmds_scores_foi,
+       indic = indic_by_foi,
+       indic_table = indic_foi_tbl)
+}
+
 #' Save and/or return an NMDS plot
 #'
 #' @param df a dataframe with NMDS1, NMDS2, and metadata factor columns

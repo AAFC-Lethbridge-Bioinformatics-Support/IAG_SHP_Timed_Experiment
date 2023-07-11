@@ -46,67 +46,36 @@ taxa_2_filtered <- taxa_1_long |>
 taxa_3_relabund <- taxa_2_filtered |>
   mutate(rel_abund = reads/sum(reads), .by = sample)
 
+# Wide relative abundance for following analyses
+taxa_4_wide_relabund <- taxa_3_relabund |>
+  select(-c(file, taxon_id, percent, reads)) |>
+  pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
+
+
 
 # 2. Perform NMDS, ANOSIM and Indicator Species Analyses plots --------------------
 anosim_result_file <- glue("{nmds_out}/anosim_{taxa_level}.txt")
 cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)}\n\n\n"),
     file = anosim_result_file)
 
+anosim_separate_depth_file <- glue("{nmds_out}/anosim_{taxa_level}_by_soil_depth.txt")
+cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)} at distinct soil depths\n\n\n"),
+    file = anosim_separate_depth_file)
+
 for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
-
-  filtered_meta <- timed_meta
-
-  # specific filters for Month and Process factors
-  if (foi == "Month"){
-    filtered_meta <- filtered_meta |> filter(Process == "Ground")
-  } else if (foi == "Process") {
-    filtered_meta <- filtered_meta |> filter(Month == "0")
-  }
-
-  # filter for the appropriate subset of samples
-  taxa_long_foi <- taxa_3_relabund |>
-    filter(sample %in% filtered_meta$sample)
-
-  # Pivot and make proportional for proper ANOSIM format
-  taxa_wide_foi <- taxa_long_foi |>
-    select(-c(file, taxon_id, percent, reads)) |>
-    pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
-
-  # a meta table with the same sample order used for the abundance matrix
-  foi_metadata <- select(taxa_wide_foi, sample) |>
-    left_join(filtered_meta)
-
   # Skip the metadata factor if there is only 1 distinct value in it after filtering
-  if(length(unique(foi_metadata[[foi]])) < 2) { next }
+  if(length(unique(filter(timed_meta, sample %in% taxa_4_wide_relabund$sample)[[foi]])) < 2) { next }
 
-  rel_abund_matrix_foi <- select(taxa_wide_foi, -sample) |>
-    as.matrix()
-  # Replace NAs with 0
-  rel_abund_matrix_foi[is.na(rel_abund_matrix_foi)] <- 0
+  results <- run_ano_nmds_indic(taxa_4_wide_relabund, timed_meta, foi)
 
-  set.seed(1234)
-  ano <- anosim(rel_abund_matrix_foi, foi_metadata[[foi]], distance = "bray", permutations = 999)
-
-  # Write result to file
+  # Save analysis results
   cat(glue("FACTOR: {foi}\n"), file = anosim_result_file, append = T)
   utils::capture.output(
-    ano,
+    results$anosim,
     file = anosim_result_file, append = T)
 
-  subtitle <- glue("   ANOSIM p-val: {ano$signif} R-stat: {ano$statistic}")
-
-  ## Perform NMDS ----
-
-  nmds = metaMDS(rel_abund_matrix_foi, distance = "bray", weakties = FALSE)
-  plot(nmds)
-
-  data.scores = as.data.frame(scores(nmds)$sites)
-  data.scores$sample <- taxa_wide_foi$sample
-
-  # Merge NMDS results with metadata ----
-  data.scores <- left_join(data.scores, foi_metadata)
   nmds_plot <- plot_nmds_by_factor(
-    df = data.scores,
+    df = results$nmds_scores,
     meta_factor = foi,
     dataset_name = "Timed",
     taxa_level = taxa_level,
@@ -114,136 +83,48 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
     polygon = TRUE,
     save_image = TRUE,
     save_path = glue("{nmds_out}/{foi}_{taxa_level}_nmds_by_depth.png"),
-    subtitle_append = subtitle
+    subtitle_append = results$ano_string
   )
   nmds_plot
 
-  # Perform indicspecies analysis ----
-  # indicspecies wrapper function
-  run_indicspecies <- function(rel_abund_matrix, metadata_tb, foi){
-    indic_by_foi = multipatt(rel_abund_matrix, metadata_tb[[foi]], func = "r.g",
-                             control = how(nperm=9999))
+  write_csv(results$indic_table, glue("{indicspecies_out}/indicspecies_{foi}.csv"))
 
-    output_tbl <- indic_by_foi$sign |>
-      mutate("significant" = p.value <= 0.05) |>
-      rownames_to_column("taxon_lineage") |>
-      arrange(p.value, -stat)
+  sink(glue("{indicspecies_out}/indicspecies_{foi}.txt"))
+  summary(results$indic)
+  sink()
 
-    write_csv(output_tbl, glue("{indicspecies_out}/indicspecies_{foi}.csv"))
+  # Run analyses separately for different soil depths for certain factors
+  if (!foi %in% c("sample","Site","Year", "Depth")){
+    for (cur_depth in c("0-15", "15-30")) {
+      filtered_meta <- filter(timed_meta, Depth == cur_depth)
+      results_cur_depth <- run_ano_nmds_indic(taxa_4_wide_relabund, filtered_meta, foi)
 
-    sink(glue("{indicspecies_out}/indicspecies_{foi}.txt"))
-    summary(indic_by_foi)
-    sink()
-  }
-  if (foi == "Month") {
-    foi_metadata <- foi_metadata |>
-      mutate(month_group = case_when(Month < 1 ~ "<1 month",
-                                     Month <= 6 ~ "1-6 months",
-                                     Month <= 18 ~ "12-18 months"))
-    meta_factor <- "month_group"
-  } else {
-    meta_factor <- foi
-  }
+      # Save analysis results
+      cat(glue("FACTOR: {foi} {cur_depth}\n"), file = anosim_separate_depth_file, append = T)
+      utils::capture.output(
+        results_cur_depth$anosim,
+        file = anosim_separate_depth_file, append = T)
 
-  run_indicspecies(rel_abund_matrix_foi, foi_metadata, meta_factor)
-}
+      nmds_plot <- plot_nmds_by_factor(
+        df = results_cur_depth$nmds_scores,
+        meta_factor = foi,
+        dataset_name = "Timed",
+        taxa_level = taxa_level,
+        shape_factor = "Depth",
+        polygon = TRUE,
+        save_image = TRUE,
+        save_path = glue("{nmds_out}/{foi}_{taxa_level}_nmds_{cur_depth}.png"),
+        subtitle_append = paste(results_cur_depth$ano_string,
+                                glue("Soil depth: {cur_depth} (cm)"))
+      )
+      nmds_plot
 
-
-
-# NMDS split by soil depth ------------------------------------------------
-anosim_result_file <- glue("{nmds_out}/anosim_{taxa_level}_by_soil_depth.txt")
-cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)}\n\n\n"),
-    file = anosim_result_file)
-
-for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
-  for (cur_depth in c("0-15", "15-30")) {
-    filtered_meta <- timed_meta |> filter(Depth == cur_depth)
-
-    # specific filters for Month and Process factors
-    if (foi == "Month"){
-      filtered_meta <- filtered_meta |> filter(Process == "Ground")
-    } else if (foi == "Process") {
-      filtered_meta <- filtered_meta |> filter(Month == "0")
-    }
-
-    # filter for the appropriate subset of samples
-    taxa_long_foi <- taxa_3_relabund |>
-      filter(sample %in% filtered_meta$sample)
-
-    # Pivot and make proportional for proper ANOSIM format
-    taxa_wide_foi <- taxa_long_foi |>
-      select(-c(file, taxon_id, percent, reads)) |>
-      pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
-
-    # a meta table with the same sample order used for the abundance matrix
-    foi_metadata <- merge(taxa_wide_foi$sample, filtered_meta,
-                          by.x = "x", by.y = "sample") |>
-      rename(sample = x)
-    if(length(unique(foi_metadata[[foi]])) < 2) { next }
-
-    rel_abund_matrix_foi <- select(taxa_wide_foi, -sample) |>
-      as.matrix()
-    # Replace NAs with 0
-    rel_abund_matrix_foi[is.na(rel_abund_matrix_foi)] <- 0
-
-    set.seed(1234)
-    ano <- anosim(rel_abund_matrix_foi, foi_metadata[[foi]], distance = "bray", permutations = 999)
-
-    # Write result to file
-    cat(glue("FACTOR: {foi} {cur_depth}\n"), file = anosim_result_file, append = T)
-    utils::capture.output(
-      ano,
-      file = anosim_result_file, append = T)
-    subtitle <- glue(" Soil depth: {cur_depth} (cm)   ANOSIM p-val: {ano$signif} R-stat: {ano$statistic}")
-
-    # Perform NMDS ----
-
-    nmds = metaMDS(rel_abund_matrix_foi, distance = "bray")
-    plot(nmds)
-
-    data.scores = as.data.frame(scores(nmds)$sites)
-    data.scores$sample <- taxa_wide_foi$sample
-
-    # Merge NMDS results with metadata ----
-    data.scores <- merge(data.scores, foi_metadata)
-    plot_nmds_by_factor(
-      df = data.scores,
-      meta_factor = foi,
-      dataset_name = "Timed",
-      taxa_level = taxa_level,
-      shape_factor = "Season",
-      polygon = TRUE,
-      save_image = TRUE,
-      save_path = glue("{nmds_out}/{foi}_{taxa_level}_nmds_{cur_depth}.png"),
-      subtitle_append = subtitle
-    )
-
-    run_indicspecies <- function(rel_abund_matrix, metadata_tb, foi){
-      indic_by_foi = multipatt(rel_abund_matrix, metadata_tb[[foi]], func = "r.g",
-                               control = how(nperm=9999))
-
-      output_tbl <- indic_by_foi$sign |>
-        mutate("significant" = p.value <= 0.05) |>
-        rownames_to_column("taxon_lineage") |>
-        arrange(p.value, -stat)
-
-      write_csv(output_tbl, glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.csv"))
+      write_csv(results_cur_depth$indic_table, glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.csv"))
 
       sink(glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.txt"))
-      summary(indic_by_foi)
+      summary(results_cur_depth$indic)
       sink()
     }
-    if (foi == "Month") {
-      foi_metadata <- foi_metadata |>
-        mutate(month_group = case_when(Month < 1 ~ "<1 month",
-                                       Month <= 6 ~ "1-6 months",
-                                       Month <= 18 ~ "12-18 months"))
-      meta_factor <- "month_group"
-    } else {
-      meta_factor <- foi
-    }
-
-    run_indicspecies(rel_abund_matrix_foi, foi_metadata, meta_factor)
   }
 }
 
