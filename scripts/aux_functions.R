@@ -19,20 +19,28 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
   timed_meta <- timed_meta[rowSums(is.na(timed_meta)) != ncol(timed_meta),] |>
     rename(sample = `MBI_ID`) |>
     filter(!str_detect(Site, "B\\d")) # Blank samples denoted by B#
-
+  timed_meta$Month <- as.numeric(timed_meta$Month)
   timed_meta <- timed_meta |>
-    mutate(Month = case_when(Year == "1998" | Year == "2007" ~ Year,
-                             TRUE ~ Month))
-  timed_meta$Month <- ordered(timed_meta$Month, levels = c("0",
-                                                           "0.07",
-                                                           "0.5",
-                                                           "1",
-                                                           "3",
-                                                           "6",
-                                                           "12",
-                                                           "18",
-                                                           "1998",
-                                                           "2007"))
+    mutate(Month = case_when(Year == "1998" | Year == "2007" ~ as.numeric(Year),
+                             TRUE ~ Month),
+           month_group = case_when(Month < 1 ~ "<1 month",
+                                   Month <= 6 ~ "1-6 months",
+                                   Month <= 18 ~ "12-18 months"))
+  timed_meta$Month <- ordered(timed_meta$Month,
+                              levels = c("0",
+                                         "0.07",
+                                         "0.5",
+                                         "1",
+                                         "3",
+                                         "6",
+                                         "12",
+                                         "18",
+                                         "1998",
+                                         "2007"))
+  timed_meta$month_group <- ordered(timed_meta$month_group,
+                                    levels = c("<1 month",
+                                               "1-6 months",
+                                               "12-18 months"))
   timed_meta$Year <- as.character(timed_meta$Year)
   timed_meta
 }
@@ -41,8 +49,9 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
 # common input format
 run_ano_nmds_indic <- function(count_table, metadata, foi){
   random_seed <- 86752155
+
   # specific filters for Month and Process factors
-  if (foi == "Month"){
+  if (foi == "Month" | foi == "month_group"){
     foi_metadata <- filter(metadata , Process == "Ground")
   } else if (foi == "Process") {
     foi_metadata <- filter(metadata, Month == "0")
@@ -86,20 +95,18 @@ run_ano_nmds_indic <- function(count_table, metadata, foi){
   nmds_scores_foi <- left_join(nmds_scores_foi, foi_metadata)
 
   if (foi == "Month") {
-    # Collapse Month to fewer groupings for indicspecies analysis
-    foi_metadata <- foi_metadata |>
-      mutate(month_group = case_when(Month < 1 ~ "<1 month",
-                                     Month <= 6 ~ "1-6 months",
-                                     Month <= 18 ~ "12-18 months"))
-    indic_foi <- "month_group"
-  } else {
-    indic_foi <- foi
+    # Don't run indicspecies for month. It will be handled with month_group
+    return(list(anosim = ano_foi,
+                ano_string = ano_string_foi,
+                nmds = nmds_foi,
+                nmds_scores = nmds_scores_foi,
+                indic = NULL,
+                indic_table = NULL))
   }
-
 
   # Perform indicspecies analysis  ----
   set.seed(random_seed)
-  indic_by_foi = multipatt(rel_abund_matrix_foi, foi_metadata[[indic_foi]], func = "r.g",
+  indic_by_foi = multipatt(rel_abund_matrix_foi, foi_metadata[[foi]], func = "r.g",
                            control = how(nperm=9999))
   # Format significant indicspecies results in table
   indic_foi_tbl <- indic_by_foi$sign |>

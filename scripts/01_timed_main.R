@@ -87,11 +87,13 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
   )
   nmds_plot
 
-  write_csv(results$indic_table, glue("{indicspecies_out}/indicspecies_{foi}.csv"))
+  if(!is.null(results$indic_table) & !is.null(results$indic)){
+    write_csv(results$indic_table, glue("{indicspecies_out}/indicspecies_{foi}.csv"))
 
-  sink(glue("{indicspecies_out}/indicspecies_{foi}.txt"))
-  summary(results$indic)
-  sink()
+    sink(glue("{indicspecies_out}/indicspecies_{foi}.txt"))
+    summary(results$indic)
+    sink()
+  }
 
   # Run analyses separately for different soil depths for certain factors
   if (!foi %in% c("sample","Site","Year", "Depth")){
@@ -119,11 +121,13 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
       )
       nmds_plot
 
-      write_csv(results_cur_depth$indic_table, glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.csv"))
+      if(!is.null(results_cur_depth$indic_table) & !is.null(results_cur_depth$indic)){
+        write_csv(results_cur_depth$indic_table, glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.csv"))
 
-      sink(glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.txt"))
-      summary(results_cur_depth$indic)
-      sink()
+        sink(glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.txt"))
+        summary(results_cur_depth$indic)
+        sink()
+      }
     }
   }
 }
@@ -171,10 +175,6 @@ plot_alpha <- function(d, alpha, group_var) {
 make_all_alpha_plots <- function(data, taxa_rank, outdir) {
   alpha_div_data <- calc_diversity_df(data)
   alpha_div_data <- merge(alpha_div_data, timed_meta, by.x = "sample", by.y = "sample")
-  alpha_div_data$Month <- factor(alpha_div_data$Month,
-                                 levels = c("0", "0.5", "0.07", "1", "3", "6", "12", "18", "1998", "2007"))
-  # filter out Blanks
-  alpha_div_data <- filter(alpha_div_data, Month != "Blank")
 
   utils::write.csv(alpha_div_data,
                    file = glue("{outdir}/alpha_div_data_{taxa_rank}.csv"),
@@ -184,11 +184,11 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
   alpha_stats_filepath <- glue("{outdir}/alpha_stats.txt")
   file.create(alpha_stats_filepath)
 
-  meta_vars <- list("Month", "Process")
+  meta_vars <- list("Month", "Process", "month_group")
   alpha_vars <- list("Observed_Richness", "Shannon", "Inv_Simpson")
   for (mv in meta_vars){
     for (av in alpha_vars) {
-      if (mv == "Month") {
+      if (mv == "Month" | mv == "month_group") {
         plot_data <- filter(alpha_div_data, Process == "Ground")
       } else if (mv == "Process") {
         plot_data <- filter(alpha_div_data, Month == "0")
@@ -198,7 +198,7 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
       alpha_KW_test(plot_data, av, mv, alpha_stats_filepath)
       plot <- plot_alpha(plot_data, av, mv)
       ggsave(plot = plot, filename = glue("{outdir}/alpha_div_{mv}_{av}_{taxa_rank}.png"), bg = "white",
-             width = 7.6)
+             width = 5.6)
     }
   }
 }
