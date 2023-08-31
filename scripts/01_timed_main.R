@@ -7,17 +7,15 @@ library(indicspecies)
 source("scripts/aux_functions.R")
 
 # 0.1 Define globals/output paths --------------------------------------------------
-taxa_level <- "genus"
+run_shallow_seqdepth <- FALSE # FALSE means run with deep seqdepth
+taxa_level <- "phylum"
 
-main_out <- "results/shallow/"
-taxa_out <- glue("{main_out}/{taxa_level}")
-nmds_out <- glue("{taxa_out}/NMDS")
-indicspecies_out <- glue("{taxa_out}/indicspecies")
-alphadiv_out <- glue("{taxa_out}/alpha_diversity")
+# main_out <- "results/shallow/"
+main_out <- ifelse(run_shallow_seqdepth, "results/shallow/", "results/deep/")
+taxa_out <- glue("{main_out}/{taxa_level}/rewrite_test/")
 
 # Create output directories
-output_dirs <- c(main_out, taxa_out, nmds_out, indicspecies_out, alphadiv_out)
-invisible(lapply(output_dirs, dir.create, showWarnings = FALSE))
+lapply(c(main_out, taxa_out), dir.create, showWarnings = FALSE)
 
 
 # 0.2 Read in metadata ----------------------------------------------------
@@ -25,11 +23,16 @@ timed_meta <- get_timed_metadata()
 
 
 # ---- 1. Read in and filter taxonomy data ----------------------------------------
-taxa_long_deep <- read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
-taxa_long_shallow <- read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
+taxa_long <- if(run_shallow_seqdepth){
+  read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
+} else {
+  read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
+}
+
+
 
 # Reformat some columns
-taxa_1_long <- taxa_long_shallow |>
+taxa_1_long <- taxa_long |>
   mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
   rename("taxon_lineage" = taxon_name) |>
   mutate(taxon_lineage = str_replace(taxon_lineage, "cellular organisms;", ""))
@@ -54,13 +57,9 @@ taxa_4_wide_relabund <- taxa_3_relabund |>
 
 
 # 2. Perform NMDS, ANOSIM and Indicator Species Analyses plots --------------------
-anosim_result_file <- glue("{nmds_out}/anosim_{taxa_level}.txt")
+anosim_result_file <- glue("{taxa_out}/anosim_{taxa_level}.txt")
 cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)}\n\n\n"),
     file = anosim_result_file)
-
-anosim_separate_depth_file <- glue("{nmds_out}/anosim_{taxa_level}_by_soil_depth.txt")
-cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)} at distinct soil depths\n\n\n"),
-    file = anosim_separate_depth_file)
 
 for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
   # Skip the metadata factor if there is only 1 distinct value in it after filtering
@@ -82,15 +81,15 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
     shape_factor = "Depth",
     polygon = TRUE,
     save_image = TRUE,
-    save_path = glue("{nmds_out}/{foi}_{taxa_level}_nmds_by_depth.png"),
+    save_path = glue("{taxa_out}/nmds_{foi}.png"),
     subtitle_append = results$ano_string
   )
   nmds_plot
 
   if(!is.null(results$indic_table) & !is.null(results$indic)){
-    write_csv(results$indic_table, glue("{indicspecies_out}/indicspecies_{foi}.csv"))
+    write_csv(results$indic_table, glue("{taxa_out}/indicspecies_{foi}.csv"))
 
-    sink(glue("{indicspecies_out}/indicspecies_{foi}.txt"))
+    sink(glue("{taxa_out}/indicspecies_{foi}.txt"))
     summary(results$indic)
     sink()
   }
@@ -102,10 +101,10 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
       results_cur_depth <- run_ano_nmds_indic(taxa_4_wide_relabund, filtered_meta, foi)
 
       # Save analysis results
-      cat(glue("FACTOR: {foi} {cur_depth}\n"), file = anosim_separate_depth_file, append = T)
+      cat(glue("FACTOR: {foi} at soil depth {cur_depth}\n"), file = anosim_result_file, append = T)
       utils::capture.output(
         results_cur_depth$anosim,
-        file = anosim_separate_depth_file, append = T)
+        file = anosim_result_file, append = T)
 
       nmds_plot <- plot_nmds_by_factor(
         df = results_cur_depth$nmds_scores,
@@ -115,16 +114,16 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
         shape_factor = "Depth",
         polygon = TRUE,
         save_image = TRUE,
-        save_path = glue("{nmds_out}/{foi}_{taxa_level}_nmds_{cur_depth}.png"),
+        save_path = glue("{taxa_out}/nmds_{foi}_{cur_depth}.png"),
         subtitle_append = paste(results_cur_depth$ano_string,
                                 glue("Soil depth: {cur_depth} (cm)"))
       )
       nmds_plot
 
       if(!is.null(results_cur_depth$indic_table) & !is.null(results_cur_depth$indic)){
-        write_csv(results_cur_depth$indic_table, glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.csv"))
+        write_csv(results_cur_depth$indic_table, glue("{taxa_out}/indicspecies_{foi}_{cur_depth}.csv"))
 
-        sink(glue("{indicspecies_out}/indicspecies_{foi}_{cur_depth}.txt"))
+        sink(glue("{taxa_out}/indicspecies_{foi}_{cur_depth}.txt"))
         summary(results_cur_depth$indic)
         sink()
       }
@@ -177,11 +176,11 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
   alpha_div_data <- merge(alpha_div_data, timed_meta, by.x = "sample", by.y = "sample")
 
   utils::write.csv(alpha_div_data,
-                   file = glue("{outdir}/alpha_div_data_{taxa_rank}.csv"),
+                   file = glue("{outdir}/alpha_div_data.csv"),
                    row.names = F)
 
 
-  alpha_stats_filepath <- glue("{outdir}/alpha_stats.txt")
+  alpha_stats_filepath <- glue("{outdir}/alpha_div_stat_tests.txt")
   file.create(alpha_stats_filepath)
 
   meta_vars <- list("Month", "Process", "month_group")
@@ -197,7 +196,7 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
       }
       alpha_KW_test(plot_data, av, mv, alpha_stats_filepath)
       plot <- plot_alpha(plot_data, av, mv)
-      ggsave(plot = plot, filename = glue("{outdir}/alpha_div_{mv}_{av}_{taxa_rank}.png"), bg = "white",
+      ggsave(plot = plot, filename = glue("{outdir}/alpha_div_{mv}_{av}.png"), bg = "white",
              width = 5.6)
     }
   }
@@ -209,5 +208,5 @@ taxa_wide_reads <- taxa_3_relabund |>
 
 taxa_wide_reads[is.na(taxa_wide_reads)] <- 0
 
-make_all_alpha_plots(taxa_wide_reads, taxa_level, alphadiv_out)
+make_all_alpha_plots(taxa_wide_reads, taxa_level, taxa_out)
 
