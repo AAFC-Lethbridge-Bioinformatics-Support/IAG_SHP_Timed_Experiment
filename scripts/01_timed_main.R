@@ -156,17 +156,18 @@ alpha_KW_test <- function(d, alpha_index, meta_factor, outfile) {
   factor_alpha <- stats::kruskal.test(stats::formula(glue("{alpha_index}~{meta_factor}")), d)
   cat(heading, file = outfile, append = T)
   utils::capture.output(factor_alpha, file = outfile, append = T)
+  factor_alpha
 }
 
 # plot alpha diversity
-plot_alpha <- function(d, alpha, group_var) {
+plot_alpha <- function(d, alpha, group_var, taxa_rank, KW_result) {
   index <- sym(alpha)
   grp <- sym(group_var)
   alpha_plot <- ggplot(d, aes(x = !!grp, y = !!index)) +
     geom_boxplot() +
     geom_jitter(aes(color = Season), alpha = 0.7) +
-    labs(title = "Alpha Diversity",
-         subtitle = glue("Metric: {alpha}"),
+    labs(title = glue("Alpha Diversity: {KW_result$data.name}"),
+         subtitle = glue("Taxonomic rank: {taxa_rank}   KW-test p-val: {signif(KW_result$p.value, 3)}"),
          x = group_var)
 }
 
@@ -194,14 +195,15 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
       } else {
         plot_data <- alpha_div_data
       }
-      alpha_KW_test(plot_data, av, mv, alpha_stats_filepath)
-      plot <- plot_alpha(plot_data, av, mv)
+      KW_result <- alpha_KW_test(plot_data, av, mv, alpha_stats_filepath)
+      plot <- plot_alpha(plot_data, av, mv, taxa_rank, KW_result)
       ggsave(plot = plot, filename = glue("{outdir}/alpha_div_{mv}_{av}.png"), bg = "white",
              width = 5.6)
     }
   }
 }
 
+# Use read counts, not relative abundance
 taxa_wide_reads <- taxa_3_relabund |>
   select(-c(file, taxon_id, percent, rel_abund)) |>
   pivot_wider(names_from = taxon_lineage, values_from = reads)
