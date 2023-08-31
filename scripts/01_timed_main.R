@@ -57,7 +57,7 @@ taxa_4_wide_relabund <- taxa_3_relabund |>
 
 
 # 2. Perform NMDS, ANOSIM and Indicator Species Analyses plots --------------------
-anosim_result_file <- glue("{taxa_out}/anosim_{taxa_level}.txt")
+anosim_result_file <- glue("{taxa_out}/nmds_ANOSIM.txt")
 cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)}\n\n\n"),
     file = anosim_result_file)
 
