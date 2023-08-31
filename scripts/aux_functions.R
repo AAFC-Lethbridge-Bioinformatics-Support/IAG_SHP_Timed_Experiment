@@ -64,13 +64,13 @@ run_ano_nmds_indic <- function(count_table, metadata, foi){
 
   # Ensure metadata doesn't have samples that aren't in count table and vice versa
   foi_metadata <- filter(foi_metadata, sample %in% count_table$sample)
-  taxa_foi <- filter(count_table, sample %in% foi_metadata$sample)
+  foi_filtered <- filter(count_table, sample %in% foi_metadata$sample)
 
   # Ensure metadata sample order is identical to that of count table
-  foi_metadata <- select(taxa_foi, sample) |>
+  foi_metadata <- select(foi_filtered, sample) |>
     left_join(foi_metadata)
 
-  rel_abund_matrix_foi <- taxa_foi |>
+  rel_abund_matrix_foi <- foi_filtered |>
     column_to_rownames(var = "sample") |>
     as.matrix()
   rel_abund_matrix_foi[is.na(rel_abund_matrix_foi)] <- 0
@@ -111,7 +111,7 @@ run_ano_nmds_indic <- function(count_table, metadata, foi){
   # Format significant indicspecies results in table
   indic_foi_tbl <- indic_by_foi$sign |>
     mutate("significant" = p.value <= 0.05) |>
-    rownames_to_column("taxon_lineage") |>
+    rownames_to_column("feature") |>
     arrange(p.value, -stat)
 
   # Return relevant analysis outputs
@@ -220,8 +220,8 @@ create_nmds_plot_by_factor <-
   }
 
   plot_title <- ifelse(dataset_name == "",
-                       glue("Taxonomic ordination by factor {meta_factor}"),
-                       glue("Taxonomic ordination of {dataset_name} samples by factor {meta_factor}"))
+                       glue("NMDS ordination by factor {meta_factor}"),
+                       glue("NMDS ordination of {dataset_name} samples by factor {meta_factor}"))
   if (is_faceted) {
     plot_title %<>% paste(glue("across {facet_factor}"))
   }
