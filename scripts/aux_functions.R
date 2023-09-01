@@ -45,6 +45,122 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
   timed_meta
 }
 
+prep_foi_data <- function(count_table, metadata, foi){
+  # specific filters for Month and Process factors
+  if (foi == "Month" | foi == "month_group"){
+    foi_metadata <- filter(metadata , Process == "Ground")
+  } else if (foi == "Process") {
+    foi_metadata <- filter(metadata, Month == "0")
+  } else {
+    foi_metadata <- metadata
+  }
+
+  # Ensure metadata doesn't have samples that aren't in count table and vice versa
+  foi_metadata <- filter(foi_metadata, sample %in% count_table$sample)
+  foi_filtered <- filter(count_table, sample %in% foi_metadata$sample)
+
+  # Ensure metadata sample order is identical to that of count table
+  foi_metadata <- select(foi_filtered, sample) |>
+    left_join(foi_metadata)
+
+  foi_matrix <- foi_filtered |>
+    column_to_rownames(var = "sample") |>
+    as.matrix()
+  foi_matrix[is.na(foi_matrix)] <- 0
+
+  # ASSERTION
+  all(rownames(foi_matrix) == foi_metadata$sample) |>
+    assertthat::assert_that(msg = "Count table and metadata table do not have identical sample columns after processing. They must match in value and order.")
+
+  list(matrix = foi_matrix,
+       metadata = foi_metadata
+  )
+}
+
+run_anosim <- function(count_matrix, metadata, foi, random_seed){
+  set.seed(random_seed)
+  ano_obj <- anosim(count_matrix, metadata[[foi]], distance = "bray", permutations = 999)
+
+  ano_string <- glue("ANOSIM p-val: {ano_obj$signif} R-stat: {ano_obj$statistic}")
+
+  list(ano_obj = ano_obj,
+       ano_string = ano_string)
+}
+
+save_anosim <- function(anosim_result_file, ano_string, foi, cur_depth=NULL){
+  header <- if (is.null(cur_depth)){
+    cat("\n", file = anosim_result_file, append = T)
+    glue("FACTOR: {foi}")
+  } else {
+    glue("FACTOR: {foi} at soil depth {cur_depth}")
+  }
+  cat(header, "\n", file = anosim_result_file, append = T)
+  cat(ano_string, "\n", file = anosim_result_file, append = T)
+}
+
+run_nmds <- function(count_matrix, metadata, random_seed){
+  set.seed(random_seed)
+  nmds_obj <- metaMDS(count_matrix, distance = "bray")
+
+  nmds_scores <- as.data.frame(scores(nmds_obj)$sites) |>
+    rownames_to_column("sample")
+  # Merge NMDS results with metadata
+  nmds_scores <- left_join(nmds_scores, metadata)
+
+  list(nmds_obj = nmds_obj,
+       nmds_scores = nmds_scores)
+}
+
+save_nmds <- function(nmds_scores, ano_string, foi, outdir, taxa_level=NULL, cur_depth=NULL){
+  if (is.null(cur_depth)) {
+    save_path <- glue("{outdir}/nmds_{foi}.png")
+    subtitle <- ano_string
+  } else {
+    save_path <- glue("{outdir}/nmds_{foi}_{cur_depth}.png")
+    subtitle <- paste(ano_string,
+                      glue("Soil depth: {cur_depth} (cm)"))
+  }
+  nmds_plot <- plot_nmds_by_factor(
+    df = nmds_scores,
+    meta_factor = foi,
+    dataset_name = "Timed",
+    taxa_level = taxa_level,
+    shape_factor = "Depth",
+    polygon = TRUE,
+    save_image = TRUE,
+    save_path = save_path,
+    subtitle_append = subtitle
+  )
+  nmds_plot
+}
+
+run_indicspecies <- function(count_matrix, metadata, foi, random_seed){
+  set.seed(random_seed)
+  indic_obj = multipatt(count_matrix, metadata[[foi]], func = "r.g",
+                           control = how(nperm=9999))
+  # Format significant indicspecies results in table
+  indic_table <- indic_obj$sign |>
+    mutate("significant" = p.value <= 0.05) |>
+    rownames_to_column("feature") |>
+    arrange(p.value, -stat)
+
+  list(indic_obj = indic_obj,
+       indic_table = indic_table)
+}
+
+save_indicspecies <- function(indic_obj, indic_table, foi, outdir, cur_depth=NULL){
+  base_name <- glue("{outdir}/indicspecies_{foi}")
+  if (!is.null(cur_depth)) {
+    base_name <- glue("{base_name}_{cur_depth}")
+  }
+
+  write_csv(indic_table, glue("{base_name}.csv"))
+
+  sink(glue("{base_name}.txt"))
+  summary(indic_obj)
+  sink()
+}
+
 # Run ANOSIM, NMDS, and indicspecies analyses. These are grouped because of
 # common input format
 run_ano_nmds_indic <- function(count_table, metadata, foi){
@@ -225,7 +341,7 @@ create_nmds_plot_by_factor <-
   if (is_faceted) {
     plot_title %<>% paste(glue("across {facet_factor}"))
   }
-  plot_subtitle <- ifelse(taxa_level == "", "",
+  plot_subtitle <- ifelse(is.null(taxa_level), "",
                           glue("Taxonomic rank: {taxa_level}"))
   plot_subtitle <- paste(plot_subtitle, subtitle_append)
 

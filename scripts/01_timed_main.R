@@ -12,7 +12,7 @@ taxa_level <- "phylum"
 
 # main_out <- "results/shallow/"
 main_out <- ifelse(run_shallow_seqdepth, "results/shallow/", "results/deep/")
-taxa_out <- glue("{main_out}/{taxa_level}/rewrite_test/")
+taxa_out <- glue("{main_out}/{taxa_level}/")
 
 # Create output directories
 lapply(c(main_out, taxa_out), dir.create, showWarnings = FALSE)
@@ -28,8 +28,6 @@ taxa_long <- if(run_shallow_seqdepth){
 } else {
   read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
 }
-
-
 
 # Reformat some columns
 taxa_1_long <- taxa_long |>
@@ -55,7 +53,6 @@ taxa_4_wide_relabund <- taxa_3_relabund |>
   pivot_wider(names_from = taxon_lineage, values_from = rel_abund)
 
 
-
 # 2. Perform NMDS, ANOSIM and Indicator Species Analyses plots --------------------
 anosim_result_file <- glue("{taxa_out}/nmds_ANOSIM.txt")
 cat(glue("ANOSIM Results for taxa level {str_to_upper(taxa_level)}\n\n\n"),
@@ -65,67 +62,36 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
   # Skip the metadata factor if there is only 1 distinct value in it after filtering
   if(length(unique(filter(timed_meta, sample %in% taxa_4_wide_relabund$sample)[[foi]])) < 2) { next }
 
-  results <- run_ano_nmds_indic(taxa_4_wide_relabund, timed_meta, foi)
+  random_seed <- 86752155
+  formatted_foi <- prep_foi_data(taxa_4_wide_relabund, timed_meta, foi)
 
-  # Save analysis results
-  cat(glue("FACTOR: {foi}\n"), file = anosim_result_file, append = T)
-  utils::capture.output(
-    results$anosim,
-    file = anosim_result_file, append = T)
+  anosim_results <- run_anosim(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+  save_anosim(anosim_result_file, anosim_results$ano_string, foi)
 
-  nmds_plot <- plot_nmds_by_factor(
-    df = results$nmds_scores,
-    meta_factor = foi,
-    dataset_name = "Timed",
-    taxa_level = taxa_level,
-    shape_factor = "Depth",
-    polygon = TRUE,
-    save_image = TRUE,
-    save_path = glue("{taxa_out}/nmds_{foi}.png"),
-    subtitle_append = results$ano_string
-  )
-  nmds_plot
+  nmds_results <- run_nmds(formatted_foi$matrix, formatted_foi$metadata, random_seed)
+  save_nmds(nmds_results$nmds_scores, anosim_results$ano_string, foi, taxa_out, taxa_level)
 
-  if(!is.null(results$indic_table) & !is.null(results$indic)){
-    write_csv(results$indic_table, glue("{taxa_out}/indicspecies_{foi}.csv"))
-
-    sink(glue("{taxa_out}/indicspecies_{foi}.txt"))
-    summary(results$indic)
-    sink()
+  if (foi != "Month") {
+    indic_results <- run_indicspecies(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+    save_indicspecies(indic_results$indic_obj, indic_results$indic_table, foi, taxa_out)
   }
 
   # Run analyses separately for different soil depths for certain factors
   if (!foi %in% c("sample","Site","Year", "Depth")){
     for (cur_depth in c("0-15", "15-30")) {
       filtered_meta <- filter(timed_meta, Depth == cur_depth)
-      results_cur_depth <- run_ano_nmds_indic(taxa_4_wide_relabund, filtered_meta, foi)
 
-      # Save analysis results
-      cat(glue("FACTOR: {foi} at soil depth {cur_depth}\n"), file = anosim_result_file, append = T)
-      utils::capture.output(
-        results_cur_depth$anosim,
-        file = anosim_result_file, append = T)
+      formatted_foi <- prep_foi_data(taxa_4_wide_relabund, filtered_meta, foi)
 
-      nmds_plot <- plot_nmds_by_factor(
-        df = results_cur_depth$nmds_scores,
-        meta_factor = foi,
-        dataset_name = "Timed",
-        taxa_level = taxa_level,
-        shape_factor = "Depth",
-        polygon = TRUE,
-        save_image = TRUE,
-        save_path = glue("{taxa_out}/nmds_{foi}_{cur_depth}.png"),
-        subtitle_append = paste(results_cur_depth$ano_string,
-                                glue("Soil depth: {cur_depth} (cm)"))
-      )
-      nmds_plot
+      anosim_results <- run_anosim(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+      save_anosim(anosim_result_file, anosim_results$ano_string, foi, cur_depth = cur_depth)
 
-      if(!is.null(results_cur_depth$indic_table) & !is.null(results_cur_depth$indic)){
-        write_csv(results_cur_depth$indic_table, glue("{taxa_out}/indicspecies_{foi}_{cur_depth}.csv"))
+      nmds_results <- run_nmds(formatted_foi$matrix, formatted_foi$metadata, random_seed)
+      save_nmds(nmds_results$nmds_scores, anosim_results$ano_string, foi, taxa_out, taxa_level, cur_depth = cur_depth)
 
-        sink(glue("{taxa_out}/indicspecies_{foi}_{cur_depth}.txt"))
-        summary(results_cur_depth$indic)
-        sink()
+      if (foi != "Month") {
+        indic_results <- run_indicspecies(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+        save_indicspecies(indic_results$indic_obj, indic_results$indic_table, foi, taxa_out, cur_depth = cur_depth)
       }
     }
   }
