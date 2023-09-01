@@ -44,72 +44,46 @@ rel_ko_pivot <- ko_long |>
 rel_ko_pivot <- rel_ko_pivot |>
   filter(sample != "S00JY-0597" & sample %in% filter(timed_meta, Year == 2020)$sample)
 
-anosim_result_file <- glue("{outdir}/anosim.txt")
+anosim_result_file <- glue("{outdir}/nmds_ANOSIM.txt")
 cat("ANOSIM Results for WOLTKA functional profiling\n\n\n",
     file = anosim_result_file)
 for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
   # Skip the metadata factor if there is only 1 distinct value in it after filtering
   if(length(unique(filter(timed_meta, sample %in% rel_ko_pivot$sample)[[foi]])) < 2) { next }
-  results <- run_ano_nmds_indic(rel_ko_pivot, timed_meta, foi)
 
-  # Save analysis results
-  cat(glue("FACTOR: {foi}\n"), file = anosim_result_file, append = T)
-  utils::capture.output(
-    results$anosim,
-    file = anosim_result_file, append = T)
+  # results <- run_ano_nmds_indic(rel_ko_pivot, timed_meta, foi)
 
+  random_seed <- 86752155
+  formatted_foi <- prep_foi_data(rel_ko_pivot, timed_meta, foi)
 
-  nmds_plot <- plot_nmds_by_factor(
-    df = results$nmds_scores,
-    meta_factor = foi,
-    dataset_name = "Timed",
-    shape_factor = "Depth",
-    polygon = TRUE,
-    save_image = TRUE,
-    save_path = glue("{outdir}/nmds_{foi}.png"),
-    subtitle_append = results$ano_string
-  )
-  nmds_plot
+  anosim_results <- run_anosim(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+  save_anosim(anosim_result_file, anosim_results$ano_string, foi)
 
-  if(!is.null(results$indic_table) & !is.null(results$indic)){
-    write_csv(results$indic_table, glue("{outdir}/indicspecies_{foi}.csv"))
+  nmds_results <- run_nmds(formatted_foi$matrix, formatted_foi$metadata, random_seed)
+  save_nmds(nmds_results$nmds_scores, anosim_results$ano_string, foi, outdir)
 
-    sink(glue("{outdir}/indicspecies_{foi}.txt"))
-    summary(results$indic)
-    sink()
+  if (foi != "Month") {
+    indic_results <- run_indicspecies(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+    save_indicspecies(indic_results$indic_obj, indic_results$indic_table, foi, outdir)
   }
 
   # Run analyses separately for different soil depths for certain factors
   if (!foi %in% c("sample","Site","Year", "Depth")){
     for (cur_depth in c("0-15", "15-30")) {
       filtered_meta <- filter(timed_meta, Depth == cur_depth)
-      results_cur_depth <- run_ano_nmds_indic(rel_ko_pivot, filtered_meta, foi)
+      # results_cur_depth <- run_ano_nmds_indic(rel_ko_pivot, filtered_meta, foi)
 
-      # Save analysis results
-      cat(glue("FACTOR: {foi} {cur_depth}\n"), file = anosim_result_file, append = T)
-      utils::capture.output(
-        results_cur_depth$anosim,
-        file = anosim_result_file, append = T)
+      formatted_foi <- prep_foi_data(rel_ko_pivot, filtered_meta, foi)
 
-      nmds_plot <- plot_nmds_by_factor(
-        df = results_cur_depth$nmds_scores,
-        meta_factor = foi,
-        dataset_name = "Timed",
-        shape_factor = "Depth",
-        polygon = TRUE,
-        save_image = TRUE,
-        save_path = glue("{outdir}/nmds_{foi}_{cur_depth}.png"),
-        subtitle_append = paste(results_cur_depth$ano_string,
-                                glue("Soil depth: {cur_depth} (cm)"))
-      )
-      nmds_plot
+      anosim_results <- run_anosim(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+      save_anosim(anosim_result_file, anosim_results$ano_string, foi, cur_depth = cur_depth)
 
-      if(!is.null(results_cur_depth$indic_table) & !is.null(results_cur_depth$indic)){
-        write_csv(results_cur_depth$indic_table, glue("{outdir}/indicspecies_{foi}_{cur_depth}.csv"))
+      nmds_results <- run_nmds(formatted_foi$matrix, formatted_foi$metadata, random_seed)
+      save_nmds(nmds_results$nmds_scores, anosim_results$ano_string, foi, outdir, cur_depth = cur_depth)
 
-        sink(glue("{outdir}/indicspecies_{foi}_{cur_depth}.txt"))
-        summary(results_cur_depth$indic)
-        sink()
+      if (foi != "Month") {
+        indic_results <- run_indicspecies(formatted_foi$matrix, formatted_foi$metadata, foi, random_seed)
+        save_indicspecies(indic_results$indic_obj, indic_results$indic_table, foi, outdir, cur_depth = cur_depth)
       }
     }
   }
