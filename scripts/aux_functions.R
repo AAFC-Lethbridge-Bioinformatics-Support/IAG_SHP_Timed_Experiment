@@ -41,6 +41,7 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
                                     levels = c("<1 month",
                                                "1-6 months",
                                                "12-18 months"))
+  timed_meta$month_continuous <- as.numeric(levels(timed_meta$Month))[timed_meta$Month]
   timed_meta$Year <- as.character(timed_meta$Year)
   timed_meta
 }
@@ -239,29 +240,7 @@ run_ano_nmds_indic <- function(count_table, metadata, foi){
        indic_table = indic_foi_tbl)
 }
 
-#' Save and/or return an NMDS plot
-#'
-#' @param df a dataframe with NMDS1, NMDS2, and metadata factor columns
-#' @param meta_factor string, a metadata factor to plot on the NMDS graph. Must
-#'   correspond to a column in `df`
-#' @param dataset_name string, optional, a dataset name to be inserted into plot
-#'   title
-#' @param taxa_level string, optional, a taxa_level to be inserted into plot
-#'   subtitle
-#' @param facet_factor string, optional, a metadata factor with which to facet
-#'   the NMDS plot. Alters the file name by default.
-#' @param polygon boolean, whether to include polygons to enclose the groups of
-#'   the metadata factor. Defaults to FALSE
-#' @param remove_NA boolean, whether to remove rows in which the `meta_factor`
-#'   is NA. Defaults to TRUE
-#' @param save_image boolean, whether to save the plot as a `.png` file.
-#'   Defaults to FALSE
-#' @param save_path string, the file path at which to save the `.png` file, if
-#'   `save_image` is set to TRUE
-#' @param appended_naming boolean, whether to append indicators to the output
-#'   image file name base on other arguments. E.g. `_polygons` appended if
-#'   `polygon` argument is set to TRUE. Meant for distinguishing files when
-#'   multiple versions are to be saved.
+# Save and return an NMDS plot
 plot_nmds_by_factor <- function(df,
                            meta_factor,
                            dataset_name = "",
@@ -330,11 +309,6 @@ create_nmds_plot_by_factor <-
     shapes_var <- sym(shape_factor)
   }
 
-  # if numeric, make into factor by splitting range of values into n groups
-  if (is.numeric(df[[meta_factor]])) {
-    df <- bin_continuous_factor(df, meta_factor, 5)
-  }
-
   plot_title <- ifelse(dataset_name == "",
                        glue("NMDS ordination by factor {meta_factor}"),
                        glue("NMDS ordination of {dataset_name} samples by factor {meta_factor}"))
@@ -368,6 +342,10 @@ create_nmds_plot_by_factor <-
     plot <- plot +
       scale_fill_viridis_d() +
       scale_color_viridis_d()
+  } else if (is.numeric(df[[meta_factor]])) {
+    plot <- plot +
+      scale_fill_viridis_c() +
+      scale_color_viridis_c()
   } else {
     plot <- plot +
       scale_color_manual(values=color_palette) +
