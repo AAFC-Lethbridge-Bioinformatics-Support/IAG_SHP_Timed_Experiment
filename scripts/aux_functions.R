@@ -85,6 +85,26 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level){
        matrix = taxa_matrix)
 }
 
+# Given the taxa data outputted from get_processed_taxonomy() and the metadata
+# from get_timed_metadata(), return a base and relative abundance phyloseq
+# object
+create_phyloseq <- function(taxa_counts, metadata){
+  taxa_otu_table <- otu_table(taxa_counts$matrix, taxa_are_rows=FALSE)
+
+  proj_sample_data <- metadata |>
+    filter(sample %in% taxa_counts$wide$sample) |>
+    column_to_rownames("sample") |>
+    sample_data()
+
+  # Create phyloseq object
+  pseq_base <- phyloseq(taxa_otu_table, proj_sample_data)
+  # Transform for relative abundances (compositional)
+  pseq_rel <- transform_sample_counts(base_pseq, function(x) x / sum(x))
+
+  list(base = pseq_base,
+       rel = pseq_rel)
+}
+
 prep_foi_data <- function(count_table, metadata, foi){
   # specific filters for Month and Process factors
   if (foi == "Month" | foi == "month_group"){

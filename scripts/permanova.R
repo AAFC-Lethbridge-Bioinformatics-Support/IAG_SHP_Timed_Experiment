@@ -26,22 +26,8 @@ lapply(c(main_out, taxa_out), dir.create, recursive = TRUE, showWarnings = FALSE
 # 0.2 Read in data and metadata -----------------------------------------------
 taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level)
 timed_meta <- get_timed_metadata()
-
-
-# 1. Create components of phyloseq object ---------------------------------
-taxa_otu_table <- otu_table(taxa_counts$matrix, taxa_are_rows=FALSE)
-
-proj_sample_data <- timed_meta |>
-  filter(sample %in% taxa_counts$wide$sample) |>
-  column_to_rownames("sample") |>
-  sample_data()
-
 # Create phyloseq object
-base_pseq <- phyloseq(taxa_otu_table, proj_sample_data)
-# Pick relative abundances (compositional)
-pseq.rel <- transform_sample_counts(base_pseq, function(x) x / sum(x))
-
-
+pseq <- create_phyloseq(taxa_counts, timed_meta)
 
 # Run analyses ------------------------------------------------------------
 
@@ -66,7 +52,7 @@ results_summary <- if (file.exists(summary_filename)){
              permanova_R2=double())
 }
 
-results_summary <- analyses_wrap(pseq = pseq.rel,
+results_summary <- analyses_wrap(pseq = pseq$rel,
                                  fcs = fcs,
                                  base_outfile = "allfactors") %>%
   # process and month are treated separately in later analysis calls
@@ -75,7 +61,7 @@ results_summary <- analyses_wrap(pseq = pseq.rel,
                      taxa_level = taxa_level,
                      seq_depth = seq_depth)
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Depth=="0-15"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Depth=="0-15"),
                                  fcs = fcs[fcs!="Depth"],
                                  base_outfile = "allfactors_0-15") %>%
   keep(!names(.) %in% c("Process", "month_continuous", "Depth")) |>
@@ -84,7 +70,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Depth=="0-15"),
                      seq_depth = seq_depth,
                      soil_depth = "0-15")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Depth=="15-30"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Depth=="15-30"),
                                  fcs = fcs[fcs!="Depth"],
                                  base_outfile = "allfactors_15-30") %>%
   keep(!names(.) %in% c("Process", "month_continuous", "Depth")) |>
@@ -96,7 +82,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Depth=="15-30")
 # Process factor
 # Month==0 is required for proper Process comparison. This leaves too few
 # samples to model factor interactions (e.g. POS*Process)
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Month==0),
                                  fcs = fcs[fcs!="month_continuous"],
                                  base_outfile = "t0",
                                  factor_interaction = FALSE) %>%
@@ -106,7 +92,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0),
                      seq_depth = seq_depth,
                      note = "timepoint 0 samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0&Depth=="0-15"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Month==0&Depth=="0-15"),
                                  fcs = fcs[fcs!="month_continuous"&fcs!="Depth"],
                                  base_outfile = "t0_0-15",
                                  factor_interaction = FALSE) %>%
@@ -117,7 +103,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0&Depth=
                      soil_depth = "0-15",
                      note = "timepoint 0 samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0&Depth=="15-30"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Month==0&Depth=="15-30"),
                                  fcs = fcs[fcs!="month_continuous"&fcs!="Depth"],
                                  base_outfile = "t0_15-30",
                                  factor_interaction = FALSE) %>%
@@ -130,7 +116,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Month==0&Depth=
 
 
 # Month factor
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"),
                                  fcs = fcs[fcs!="Process"],
                                  base_outfile = "ground") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -139,7 +125,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      seq_depth = seq_depth,
                      note = "ground samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="0-15"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"],
                                  base_outfile = "ground0-15") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -149,7 +135,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      soil_depth = "0-15",
                      note = "ground samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="0-15"&Season=="Spring"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"&Season=="Spring"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                  base_outfile = "ground0-15spring") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -160,7 +146,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      season = "Spring",
                      note = "ground samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="0-15"&Season=="Fall"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"&Season=="Fall"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                  base_outfile = "ground0-15fall") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -171,7 +157,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      season = "Fall",
                      note = "ground samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"],
                                  base_outfile = "ground15-30") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -182,7 +168,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      note = "ground samples only")
 
 # split deep soils by POS, instead of season
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"&POS=="M"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="M"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                  base_outfile = "ground15-30M") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -192,7 +178,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      soil_depth = "15-30",
                      pos = "M",
                      note = "ground samples only")
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"&POS=="L"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="L"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                  base_outfile = "ground15-30L") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -202,7 +188,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      soil_depth = "15-30",
                      pos = "L",
                      note = "ground samples only")
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"&POS=="U"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="U"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                  base_outfile = "ground15-30U") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -214,7 +200,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      note = "ground samples only")
 
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"&Season=="Spring"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&Season=="Spring"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                  base_outfile = "ground15-30spring") %>%
   keep(names(.) %in% c("month_continuous")) |>
@@ -225,7 +211,7 @@ results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Groun
                      season = "Spring",
                      note = "ground samples only")
 
-results_summary <- analyses_wrap(pseq = subset_samples(pseq.rel, Process=="Ground"&Depth=="15-30"&Season=="Fall"),
+results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&Season=="Fall"),
                                  fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                  base_outfile = "ground15-30Fall") %>%
   keep(names(.) %in% c("month_continuous")) |>
