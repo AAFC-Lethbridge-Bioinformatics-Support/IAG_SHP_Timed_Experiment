@@ -46,6 +46,45 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
   timed_meta
 }
 
+# Given the sequencing depth and taxa level, read taxonomic classification data,
+# process and format the data, then return a named list with several formats:
+# raw counts, filtered counts, wide filtered counts, and wide filtered counts as
+# a matrix (NAs set to 0)
+get_processed_taxonomy <- function(sequence_depth, taxa_level){
+  taxa_long <- if(sequence_depth == "shallow"){
+    read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
+  } else if(sequence_depth == "deep"){
+    read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
+  } else {
+    stop("Error: sequence depth should be specified as 'shallow' or 'deep'")
+  }
+
+  # Reformat and filter some columns.
+  # Remove pre-2020 samples, filter unclassified taxa, remove suspect sample
+  # 0597, and apply 0.01% per-sample threshold
+  taxa_1_filtered <- taxa_long |>
+    mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
+    filter(sample != "S00JY-0597") |>
+    filter(sample %in% filter(timed_meta, Year == 2020)$sample) |>
+    filter(!str_detect(taxon_name, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]")) |>
+    filter(reads > sum(reads)*0.0001, .by = sample) |>
+    mutate(taxon_name = str_extract(taxon_name, ";([^;]+);$", group = 1))
+
+  taxa_2_wide <- taxa_1_filtered |>
+    select(-c(file, taxon_id, percent)) |>
+    pivot_wider(names_from = taxon_name, values_from = reads)
+
+  taxa_matrix <- taxa_2_wide |>
+    column_to_rownames("sample") |>
+    as.matrix()
+  taxa_matrix[is.na(taxa_matrix)] <- 0
+
+  list(raw = taxa_long,
+       filtered = taxa_1_filtered,
+       wide = taxa_2_wide,
+       matrix = taxa_matrix)
+}
+
 prep_foi_data <- function(count_table, metadata, foi){
   # specific filters for Month and Process factors
   if (foi == "Month" | foi == "month_group"){

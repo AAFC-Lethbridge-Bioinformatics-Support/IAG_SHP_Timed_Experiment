@@ -8,7 +8,7 @@ library(glue)
 source("scripts/aux_functions.R")
 source("scripts/permanova_aux.R")
 
-# 0.1 Define globals/output paths --------------------------------------------------
+# 0.1 Define globals/output paths ---------------------------------------------
 run_shallow_seqdepth <- TRUE # FALSE means run with deep sequencing depth
 seq_depth <- ifelse(run_shallow_seqdepth, "shallow", "deep")
 taxa_level <- "phylum"
@@ -23,48 +23,16 @@ taxa_out <- glue("{main_out}/{taxa_level}/")
 lapply(c(main_out, taxa_out), dir.create, recursive = TRUE, showWarnings = FALSE)
 
 
-# 0.2 Read in metadata ----------------------------------------------------
+# 0.2 Read in data and metadata -----------------------------------------------
+taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level)
 timed_meta <- get_timed_metadata()
 
 
-# ---- 1. Read in and filter taxonomy data ----------------------------------------
-taxa_long <- if(run_shallow_seqdepth){
-  read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
-} else {
-  read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
-}
-
-# Reformat some columns
-taxa_1_long <- taxa_long |>
-  mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
-  rename("taxon_lineage" = taxon_name) |>
-  mutate(taxon_lineage = str_replace(taxon_lineage, "cellular organisms;", ""))
-
-# Remove pre-2020 and non-Timed experiment samples, filter unclassified taxa,
-# remove suspect sample 0597, and apply 0.01% per-sample threshold
-taxa_2_filtered <- taxa_1_long |>
-  filter(sample %in% filter(timed_meta, Year == 2020)$sample) |>
-  filter(!str_detect(taxon_lineage, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]")) |>
-  mutate(taxon_lineage = str_extract(taxon_lineage, ";([^;]+);$", group = 1)) |>
-  filter(sample != "S00JY-0597") |>
-  filter(reads > sum(reads)*0.0001, .by = sample)
-
-# Wide table for following analyses
-taxa_3_wide <- taxa_2_filtered |>
-  select(-c(file, taxon_id, percent)) |>
-  pivot_wider(names_from = taxon_lineage, values_from = reads)
-
-taxa_matrix <- taxa_3_wide |>
-  column_to_rownames("sample") |>
-  as.matrix()
-taxa_matrix[is.na(taxa_matrix)] <- 0
-
-
-# 2. Create components of phyloseq object ---------------------------------
-taxa_otu_table <- otu_table(taxa_matrix, taxa_are_rows=FALSE)
+# 1. Create components of phyloseq object ---------------------------------
+taxa_otu_table <- otu_table(taxa_counts$matrix, taxa_are_rows=FALSE)
 
 proj_sample_data <- timed_meta |>
-  filter(sample %in% taxa_3_wide$sample) |>
+  filter(sample %in% taxa_counts$wide$sample) |>
   column_to_rownames("sample") |>
   sample_data()
 
