@@ -20,17 +20,22 @@ analyses_wrap <- function(pseq,
   rownames(meta) <- sample_names(pseq)
   dist <- vegdist(otu)
 
-  homog_test <- homogeneity_test(dist, meta, fcs, PERMANOVA_result_file)
-  adonis_result <- run_adonis(otu, meta, fcs, PERMANOVA_result_file, factor_interaction)
+  adonis_result <- run_adonis(otu, meta, fcs, factor_interaction)
+  sink(PERMANOVA_result_file, append = TRUE)
+  print(adonis_result$aov.tab)
+  sink()
 
   for (fc in fcs) {
     subtitle <- ""
-    if (fc %in% names(homog_test)){
-      fc_homog_pval <- homog_test[[fc]]$`Pr(>F)`[1]
-      subtitle <- glue("\n\nHomogeneity of variance p.val: {signif(fc_homog_pval, 4)}")
-    } else {
-      browser() # does this condition ever happen?
-    }
+
+    homog_test <- anova(betadisper(dist, meta[[fc]]))
+    cat("\nANOVA check on homogeneity of", fc, "\n", file = PERMANOVA_result_file, append = T)
+    sink(PERMANOVA_result_file, append = TRUE)
+    print(homog_test)
+    sink()
+    homog_pval <- homog_test$`Pr(>F)`[1]
+    subtitle <- glue("\n\nHomogeneity of variance p.val: {signif(homog_pval, 4)}")
+
     fc_adonis <- adonis_result$aov.tab[fc,]
     fc_adonis_R2 <- fc_adonis$R2[1]
     fc_adonis_pval <- fc_adonis$`Pr(>F)`[1]
@@ -39,7 +44,7 @@ analyses_wrap <- function(pseq,
               subtitle=subtitle,
               save_image=TRUE,
               save_path=glue("{taxa_out}/nmds_{base_outfile}_{fc}.png"))
-    factor_results_list[[fc]] <- list(homog_pval = fc_homog_pval,
+    factor_results_list[[fc]] <- list(homog_pval = homog_pval,
                                       adonis_pval = fc_adonis_pval,
                                       adonis_R2 = fc_adonis_R2)
   }
@@ -152,7 +157,7 @@ scale_arrow <- function(end_x, end_y, minx, maxx, miny, maxy) {
   a_scaled <- c(x = end_x * scale_factor, y = end_y * scale_factor)
 }
 
-run_adonis <- function(otu, meta, fcs, outfile=NULL, factor_interaction=TRUE){
+run_adonis <- function(otu, meta, fcs, factor_interaction=TRUE){
   formula_char <- ifelse(factor_interaction, "*", "+")
   formula <- as.formula(glue("otu ~ {str_flatten(fcs, collapse = formula_char)}"))
 
@@ -160,29 +165,5 @@ run_adonis <- function(otu, meta, fcs, outfile=NULL, factor_interaction=TRUE){
                       data = meta,
                       permutations = n_permutations,
                       method = "bray")
-
-  if (!is.null(outfile)){
-    sink(outfile, append = TRUE)
-    print(permanova$aov.tab)
-    sink()
-  }
-  permanova
-}
-
-homogeneity_test <- function(dist, meta, fcs, outfile=NULL){
-  test_results <- list()
-  for (fc in fcs){
-    if(n_distinct(meta[[fc]]) > 1) {
-      bd <- anova(betadisper(dist, meta[[fc]]))
-      test_results[[fc]] <- bd
-      if(!is.null(outfile)){
-        cat("\nANOVA check on homogeneity of", fc, "\n", file = outfile, append = T)
-        sink(outfile, append = TRUE)
-        print(bd)
-        sink()
-      }
-    }
-  }
-  test_results
 }
 
