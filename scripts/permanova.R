@@ -32,9 +32,9 @@ pseq <- create_phyloseq(taxa_counts, timed_meta)
 # Run analyses ------------------------------------------------------------
 
 fcs <- if(run_shallow_seqdepth) {
-  c("month_continuous","POS","Season","Depth", "Process")
+  c("month_continuous","Process","POS","Season","Depth")
 } else {
-  c("month_continuous","Season","Depth", "Process")
+  c("month_continuous","Process","Season","Depth")
 }
 
 summary_filename <- glue("{main_out}/permanova_results_summary.csv")
