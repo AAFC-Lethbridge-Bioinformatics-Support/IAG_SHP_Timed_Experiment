@@ -26,8 +26,8 @@ lapply(c(main_out, taxa_out), dir.create, recursive = TRUE, showWarnings = FALSE
 
 # 0.2 Read in data and metadata -------------------------------------------
 
-taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level)
 timed_meta <- get_timed_metadata()
+taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level, timed_meta)
 # Create phyloseq object
 pseq <- create_phyloseq(taxa_counts, timed_meta)
 

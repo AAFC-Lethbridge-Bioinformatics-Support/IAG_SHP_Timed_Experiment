@@ -50,7 +50,7 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
 # process and format the data, then return a named list with several formats:
 # raw counts, filtered counts, wide filtered counts, and wide filtered counts as
 # a matrix (NAs set to 0)
-get_processed_taxonomy <- function(sequence_depth, taxa_level){
+get_processed_taxonomy <- function(sequence_depth, taxa_level, meta){
   taxa_long <- if(sequence_depth == "shallow"){
     read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
   } else if(sequence_depth == "deep"){
@@ -65,7 +65,7 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level){
   taxa_1_filtered <- taxa_long |>
     mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
     filter(sample != "S00JY-0597") |>
-    filter(sample %in% filter(timed_meta, Year == 2020)$sample) |>
+    filter(sample %in% filter(meta, Year == 2020)$sample) |>
     filter(!str_detect(taxon_name, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]")) |>
     filter(reads > sum(reads)*0.0001, .by = sample) |>
     mutate(taxon_name = str_extract(taxon_name, ";([^;]+);$", group = 1))
@@ -99,7 +99,7 @@ create_phyloseq <- function(taxa_counts, metadata){
   # Create phyloseq object
   pseq_base <- phyloseq(taxa_otu_table, proj_sample_data)
   # Transform for relative abundances (compositional)
-  pseq_rel <- transform_sample_counts(base_pseq, function(x) x / sum(x))
+  pseq_rel <- transform_sample_counts(pseq_base, function(x) x / sum(x))
 
   list(base = pseq_base,
        rel = pseq_rel)
