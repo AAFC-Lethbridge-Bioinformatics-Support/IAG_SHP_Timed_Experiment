@@ -8,10 +8,11 @@ library(glue)
 source("scripts/aux_functions.R")
 source("scripts/permanova_aux.R")
 
-# 0.1 Define globals/output paths ---------------------------------------------
-run_shallow_seqdepth <- TRUE # FALSE means run with deep sequencing depth
-seq_depth <- ifelse(run_shallow_seqdepth, "shallow", "deep")
-taxa_level <- "phylum"
+
+# 0.1 Define globals/output paths -----------------------------------------
+
+seq_depth <- "shallow" # shallow or deep
+taxa_level <- "phylum" # phylum or genus
 
 n_permutations <- 9999
 
@@ -23,19 +24,21 @@ taxa_out <- glue("{main_out}/{taxa_level}/")
 lapply(c(main_out, taxa_out), dir.create, recursive = TRUE, showWarnings = FALSE)
 
 
-# 0.2 Read in data and metadata -----------------------------------------------
+# 0.2 Read in data and metadata -------------------------------------------
+
 taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level)
 timed_meta <- get_timed_metadata()
 # Create phyloseq object
 pseq <- create_phyloseq(taxa_counts, timed_meta)
 
-# Run analyses ------------------------------------------------------------
 
-fcs <- if(run_shallow_seqdepth) {
+# 0.3 Analysis prep -------------------------------------------------------
+
+fcs <- if(seq_depth == "shallow") {
   c("month_continuous","Process","POS","Season","Depth")
-} else {
+} else if(seq_depth == "deep") {
   c("month_continuous","Process","Season","Depth")
-}
+} else { stop("Sequence depth should be specified as 'shallow' or 'deep'")}
 
 summary_filename <- glue("{main_out}/permanova_results_summary.csv")
 results_summary <- if (file.exists(summary_filename)){
@@ -51,6 +54,9 @@ results_summary <- if (file.exists(summary_filename)){
              permanova_pval=double(),
              permanova_R2=double())
 }
+
+
+# 1. Run analyses ---------------------------------------------------------
 
 results_summary <- analyses_wrap(pseq = pseq$rel,
                                  fcs = fcs,
