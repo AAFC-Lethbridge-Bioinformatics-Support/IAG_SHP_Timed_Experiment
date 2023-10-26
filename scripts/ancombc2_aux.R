@@ -12,7 +12,7 @@ library(ANCOMBC)
 volc_plot <- function(df, plot_title="", subtitle="") {
   # determine x range
   x_default <- 1.35
-  x_data <- max(abs(df$log2fc))
+  x_data <- max(abs(df$log2fc), na.rm = TRUE)
   # x_use <- max(x_default, x_data) + 0.15
   x_use <- x_data + 0.15
 
@@ -26,7 +26,7 @@ volc_plot <- function(df, plot_title="", subtitle="") {
     ggplot(aes(x = log2fc,
                y = -log10(q),
                color = direction,
-               shape = pseudo.sensitive)
+               shape = passed.ss)
     ) +
     geom_point(alpha = 0.5, size = 3) +
     scale_color_manual(values = c(
@@ -34,7 +34,7 @@ volc_plot <- function(df, plot_title="", subtitle="") {
       "No change" = "black",
       "Decrease" = "red"
     )) +
-    scale_shape_manual(values = c("FALSE" = 16, "TRUE" = 4)) +
+    scale_shape_manual(values = c("TRUE" = 16, "FALSE" = 4)) +
     xlim(0 - x_use, 0 + x_use) +
     ylim(0, y_use) +
     geom_hline(
@@ -54,18 +54,17 @@ volc_plot <- function(df, plot_title="", subtitle="") {
   return(da_plot)
 }
 
-sigdif_taxa_plot <- function(sigdif_taxa, counts, meta) {
-  # use matrix because NAs have been set to 0 for accurate lm plotting
-  sig_counts <- counts$matrix |>
-    as.data.frame() |>
-    rownames_to_column("sample") |>
-    pivot_longer(cols = -sample, names_to = "taxon_name", values_to = "reads") |>
+sigdif_taxa_plot <- function(sigdif_taxa, ancom_result, meta) {
+  # Why does the bias correct log table have NAs?
+  sig_log_table <- ancom_result$bias_correct_log_table |>
+    rownames_to_column("taxon_name") |>
+    pivot_longer(cols = !taxon_name, names_to = "sample", values_to = "bias.corrected.log.reads") |>
     filter(taxon_name %in% sigdif_taxa) |>
     mutate(taxon_name = str_replace(taxon_name, "Candidatus", "Ca")) |>
     inner_join(meta)
 
-  sig_counts |>
-    ggplot(aes(x = month.continuous, y = reads)) +
+  sig_log_table |>
+    ggplot(aes(x = month.continuous, y = bias.corrected.log.reads)) +
     geom_point() +
     geom_smooth(method = "lm") +
     facet_wrap(taxon_name ~ ., scales = "free_y") +
@@ -75,7 +74,7 @@ sigdif_taxa_plot <- function(sigdif_taxa, counts, meta) {
 
 
 # outputs: volcano plot, sigdif LM plots, sigdif table
-ancombc_wrap <- function(pseq, formula, filename_append="") {
+ancombc_wrap <- function(pseq, formula, meta, taxa_level, taxa_out, filename_append="") {
   # month as continuous variable
   ancom_result <- ancombc2(data = pseq,
                            fix_formula = formula,
@@ -89,42 +88,61 @@ ancombc_wrap <- function(pseq, formula, filename_append="") {
 
   # save csv
   month_only |> select(taxon, log2fc, q, diff, direction,
-                       pseudo.sensitivity.p, pseudo.sensitive) |>
-    arrange(-diff, -pseudo.sensitive, q) |>
+                       passed.ss) |>
+    arrange(-diff, -passed.ss, q) |>
     write_csv(file = glue("{taxa_out}/da-table_month-continuous{filename_append}.csv"))
 
-  # make and save volcano polt
+  # make and save volcano plot
   v_plot <- volc_plot(month_only, "Differential abundance across Month",
                       subtitle = glue("Taxa level: {taxa_level}"))
   ggsave(v_plot,
          filename = glue("{taxa_out}/volcplot_month-continuous{filename_append}.png"))
 
   if(any(month_only$diff)) {
-    # make and save differentially abundant taxa linear model plot
-    da_plot <- month_only |> filter(diff == TRUE) |> pull(taxon) |>
-      sigdif_taxa_plot(counts = taxa_counts, meta = timed_meta)
+    # make and save differentially abundant taxa linear model plots
+    sig_taxa <- month_only |> filter(diff == TRUE) |> arrange(taxon) |> pull(taxon)
+    if (length(sig_taxa > 25)) {
+      save_multi_da_plots(sig_taxa, ancom_result, meta, filename_append)
+    } else {
+      da_plot <- sigdif_taxa_plot(sigdif_taxa = sig_taxa,
+                                  ancom_result = ancom_result,
+                                  meta = timed_meta)
+      ggsave(da_plot,
+             filename = glue("{taxa_out}/da-plot_month-continuous{filename_append}.png"),
+             width = 9,
+             height = 7)
+    }
+
+  } else {
+    message("ANCOMBC2: No significantly different taxa were found.")
+  }
+}
+
+# split sigdif DA taxa into groups of 25 and save separate plots (for legibility)
+save_multi_da_plots <- function(sig_taxa, ancom_result, meta, filename_append){
+  chunks <- split(sig_taxa, ceiling(seq_along(sig_taxa)/25))
+  for (nm in names(chunks)) {
+    da_plot <- sigdif_taxa_plot(sigdif_taxa = chunks[[nm]],
+                                ancom_result = ancom_result,
+                                meta = meta)
+    padded_name <- str_pad(nm, width = max(nchar(names(chunks))),
+                           side = "left", pad = "0")
     ggsave(da_plot,
-           filename = glue("{taxa_out}/da-plot_month-continuous{filename_append}.png"),
+           filename = glue("{taxa_out}/da-plot_month-continuous{filename_append}_{padded_name}.png"),
            width = 9,
            height = 7)
-  } else {
-    messsage("ANCOMBC2: No significantly different taxa were found.")
   }
 }
 
 format_ancombc_results <- function(ancom_result) {
   # make tidy format
-  ancom2_tidy <- ancom_result$res |>
+  ancom_tidy <- ancom_result$res |>
+    rename_with(.cols = starts_with("passed_ss"), .fn = str_replace, "_", ".") |>
     pivot_longer(cols = !taxon, names_sep = "_", names_to = c(".value", "metavariable"))
-  # merge pseudo sensitivity test results
-  ancom3_tidy <- ancom_result$pseudo_sens_tab |>
-    pivot_longer(cols = !taxon,  names_to = "metavariable", values_to = "pseudo.sensitivity.p") |>
-    inner_join(ancom2_tidy)
 
   # add log2, direction, and pseudo-sensitivity (boolean) columns
-  ancom4_tidy <- ancom3_tidy |>
+  ancom_tidy |>
     mutate(log2fc = log2(exp(lfc)),
-           pseudo.sensitive = pseudo.sensitivity.p > 0.05,
            direction = ifelse(q < 0.05,
                               ifelse(log2fc > 0,
                                      "Increase",
