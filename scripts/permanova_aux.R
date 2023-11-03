@@ -22,7 +22,7 @@ analyses_wrap <- function(pseq,
 
   adonis_result <- run_adonis(otu, meta, fcs, factor_interaction)
   sink(PERMANOVA_result_file, append = TRUE)
-  print(adonis_result$aov.tab)
+  print(adonis_result)
   sink()
 
   for (fc in fcs) {
@@ -36,7 +36,7 @@ analyses_wrap <- function(pseq,
     homog_pval <- homog_test$`Pr(>F)`[1]
     subtitle <- glue("\n\nHomogeneity of variance p.val: {signif(homog_pval, 4)}")
 
-    fc_adonis <- adonis_result$aov.tab[fc,]
+    fc_adonis <- adonis_result[fc,]
     fc_adonis_R2 <- fc_adonis$R2[1]
     fc_adonis_pval <- fc_adonis$`Pr(>F)`[1]
     subtitle <- glue("{subtitle}\nAdonis PERMANOVA test p.val: {signif(fc_adonis_pval, 4)}  R2: {signif(fc_adonis_R2, 4)}")
@@ -161,7 +161,7 @@ run_adonis <- function(otu, meta, fcs, factor_interaction=TRUE){
   formula_char <- ifelse(factor_interaction, "*", "+")
   formula <- as.formula(glue("otu ~ {str_flatten(fcs, collapse = formula_char)}"))
 
-  permanova <- adonis(formula = formula,
+  permanova <- adonis2(formula = formula,
                       data = meta,
                       permutations = n_permutations,
                       method = "bray")
