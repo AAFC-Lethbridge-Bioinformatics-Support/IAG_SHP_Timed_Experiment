@@ -3,6 +3,7 @@ library(magrittr)
 library(vegan)
 library(glue)
 library(roxygen2)
+library(phyloseq)
 
 color_palette <- c("#89C5DA", "#DA5724", "#689030", "#CE50CA", "#3F4921",
                    "#C0717C", "#CBD588", "#5F7FC7", "#673770", "#D3D93E", "#508578", "#D7C1B1",
@@ -11,13 +12,12 @@ color_palette <- c("#89C5DA", "#DA5724", "#689030", "#CE50CA", "#3F4921",
 
 # Read in Timed metadata and return a reformatted version
 get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv") {
-
   message("Loading metadata at path ", path)
 
   timed_meta <- read_csv(path)
   # remove rows with all NA, remove blanks
   timed_meta <- timed_meta[rowSums(is.na(timed_meta)) != ncol(timed_meta),] |>
-    rename(sample = `MBI_ID`) |>
+    rename(sample = "MBI_ID") |>
     filter(!str_detect(Site, "B\\d")) # Blank samples denoted by B#
   timed_meta$Month <- as.numeric(timed_meta$Month)
   timed_meta <- timed_meta |>
@@ -43,6 +43,11 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
                                                "12-18 months"))
   timed_meta$month_continuous <- as.numeric(levels(timed_meta$Month))[timed_meta$Month]
   timed_meta$Year <- as.character(timed_meta$Year)
+  timed_meta$Process <- ordered(timed_meta$Process,
+                                levels = c("Fresh",
+                                           "Sieved",
+                                           "Air-dried",
+                                           "Ground"))
   timed_meta
 }
 
@@ -83,6 +88,44 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta){
        filtered = taxa_1_filtered,
        wide = taxa_2_wide,
        matrix = taxa_matrix)
+}
+
+# Read the woltka KO data, process and format it, then return a named list with
+# several formats: long (tidy) counts, wide (genes as columns), and wide matrix
+get_processed_KO <- function(meta) {
+  ko <- read_tsv("data/ko_rpk_filtered-0-001p.tsv") |>
+    relocate("Name") |>
+    rename("name" = Name,
+           "ko_gene_ID" = `#FeatureID`)
+
+  # Pivot longer and get relative abundance
+  ko_long <- ko |>
+    pivot_longer(cols = starts_with("S00JY"),
+                 names_to = "sample",
+                 values_to = "reads")
+
+  # FILTER out the weirdo sample
+  ko_long_filtered <- ko_long |>
+    filter(sample != "S00JY-0597" & sample %in% filter(meta, Year == 2020)$sample)
+
+  gene_names <- ko_long_filtered |> distinct(name, ko_gene_ID)
+
+  # Pivot for samples as rows, genes as columns
+  ko_wide <- ko_long_filtered |>
+    pivot_wider(id_cols = sample,
+                names_from = ko_gene_ID,
+                values_from = reads)
+
+  ko_matrix <- ko_wide |>
+    column_to_rownames("sample") |>
+    as.matrix()
+  ko_matrix[is.na(ko_matrix)] <- 0
+
+  list(long = ko_long_filtered,
+       wide = ko_wide,
+       matrix = ko_matrix,
+       gene_key = gene_names)
+
 }
 
 # Given the taxa data outputted from get_processed_taxonomy() and the metadata
@@ -374,7 +417,7 @@ create_nmds_plot_by_factor <-
   if (is_faceted) {
     plot_title %<>% paste(glue("across {facet_factor}"))
   }
-  plot_subtitle <- ifelse(is.null(taxa_level), "",
+  plot_subtitle <- ifelse(taxa_level == "", "",
                           glue("Taxonomic rank: {taxa_level}"))
   plot_subtitle <- paste(plot_subtitle, subtitle_append)
 
