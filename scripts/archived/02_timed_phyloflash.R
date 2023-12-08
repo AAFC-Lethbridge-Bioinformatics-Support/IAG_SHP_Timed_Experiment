@@ -2,7 +2,7 @@ pkgs = c("tidyverse", "vegan", "glue", "indicspecies")
 lapply(pkgs, library, character.only = TRUE)
 
 source("scripts/aux_functions.R")
-
+source("scripts/archived/archived_aux_functions.R")
 
 # 0.1 Define globals/output paths --------------------------------------------------
 main_out <- "results/deep/timed/phyloflash"

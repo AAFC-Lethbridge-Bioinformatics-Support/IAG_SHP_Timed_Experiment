@@ -5,6 +5,7 @@ library(glue)
 library(indicspecies)
 
 source("scripts/aux_functions.R")
+source("scripts/archived/archived_aux_functions.R")
 
 # 0.1 Define globals/output paths ----------------------------------------------
 taxa_level <- "phylum"

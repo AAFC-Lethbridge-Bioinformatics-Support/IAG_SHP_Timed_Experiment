@@ -5,9 +5,10 @@ library(glue)
 library(indicspecies)
 
 source("scripts/aux_functions.R")
+source("scripts/archived/archived_aux_functions.R")
 
 # 0.1 Define globals/output paths --------------------------------------------------
-run_shallow_seqdepth <- FALSE # FALSE means run with deep seqdepth
+run_shallow_seqdepth <- TRUE # FALSE means run with deep seqdepth
 taxa_level <- "phylum"
 
 # main_out <- "results/shallow/"
@@ -145,7 +146,6 @@ make_all_alpha_plots <- function(data, taxa_rank, outdir) {
   utils::write.csv(alpha_div_data,
                    file = glue("{outdir}/alpha_div_data.csv"),
                    row.names = F)
-
 
   alpha_stats_filepath <- glue("{outdir}/alpha_div_stat_tests.txt")
   file.create(alpha_stats_filepath)

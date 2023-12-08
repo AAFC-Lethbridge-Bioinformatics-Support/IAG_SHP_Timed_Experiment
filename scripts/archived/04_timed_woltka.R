@@ -4,9 +4,10 @@ library(vegan)
 library(glue)
 library(indicspecies)
 
+source("scripts/archived/archived_aux_functions.R")
 source("scripts/aux_functions.R")
 
-outdir <- "results/woltka/rpk"
+outdir <- "results/woltka/rpk/rewrite_test/"
 dir.create(outdir)
 
 # 0.2 Read in metadata ----------------------------------------------------
@@ -19,6 +20,11 @@ ko <- read_tsv("data/ko_rpk_filtered-0-001p.tsv") |>
   relocate("Name") |>
   rename("name" = Name,
          "ko_gene_ID" = `#FeatureID`)
+
+# pathways_long <- read_tsv("data/pathway_rpk_filtered-0-001p.tsv") |>
+#   rename("kegg_pathway" = `#FeatureID`) |>
+#   pivot_longer(cols = starts_with("S00JY"), names_to = "sample", values_to = "reads") |>
+#   mutate(relative_abundance = reads/sum(reads), .by = sample)
 
 # Pivot longer and get relative abundance
 ko_long <- ko |>
@@ -92,5 +98,27 @@ for (foi in names(select(timed_meta, !matches("sample|Site|Year")))) {
 
 # Pathway Analysis --------------------------------------------------------
 
+pathways <- read_tsv("data/pathway_rpk_filtered-0-001p.tsv")
+
+pathways_long <- pathways |>
+  pivot_longer(cols = starts_with("S00JY"), names_to = "sample", values_to = "count")
+
+pathways_long <- read_tsv("data/pathway_rpk_filtered-0-001p.tsv") |>
+  rename("kegg_pathway" = `#FeatureID`) |>
+  pivot_longer(cols = starts_with("S00JY"), names_to = "sample", values_to = "reads") |>
+  mutate(relative_abundance = reads/sum(reads), .by = sample)
+
+# Pivot for samples as rows, genes as columns
+rel_ko_pivot <- pathways_long |>
+  pivot_wider(id_cols = sample,
+              names_from = kegg_pathway,
+              values_from = relative_abundance)
+
+# FILTER out the weirdo sample
+rel_ko_pivot <- rel_ko_pivot |>
+  filter(sample != "S00JY-0597" & sample %in% filter(timed_meta, Year == 2020)$sample)
+
+
+outdir <- outdir <- "results/woltka/rpk/kegg_pathway"
 
 
