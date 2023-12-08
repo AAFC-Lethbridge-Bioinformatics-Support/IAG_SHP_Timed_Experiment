@@ -227,12 +227,11 @@ save_nmds <- function(nmds_scores, ano_string, foi, outdir, taxa_level=NULL, cur
     df = nmds_scores,
     meta_factor = foi,
     dataset_name = "Timed",
-    taxa_level = taxa_level,
     shape_factor = "Depth",
     polygon = TRUE,
     save_image = TRUE,
     save_path = save_path,
-    subtitle_append = subtitle
+    subtitle = subtitle
   )
   nmds_plot
 }
@@ -240,7 +239,7 @@ save_nmds <- function(nmds_scores, ano_string, foi, outdir, taxa_level=NULL, cur
 run_indicspecies <- function(count_matrix, metadata, foi, random_seed){
   set.seed(random_seed)
   indic_obj = multipatt(count_matrix, metadata[[foi]], func = "r.g",
-                           control = how(nperm=9999))
+                        control = how(nperm=9999))
   # Format significant indicspecies results in table
   indic_table <- indic_obj$sign |>
     mutate("significant" = p.value <= 0.05) |>
@@ -344,17 +343,16 @@ run_ano_nmds_indic <- function(count_table, metadata, foi){
 
 # Save and return an NMDS plot
 plot_nmds_by_factor <- function(df,
-                           meta_factor,
-                           dataset_name = "",
-                           taxa_level = "",
-                           facet_factor = "",
-                           shape_factor = "",
-                           polygon = FALSE,
-                           remove_NA = TRUE,
-                           save_image = FALSE,
-                           save_path = "nmds.png",
-                           subtitle_append = "",
-                           appended_naming = FALSE) {
+                                meta_factor,
+                                dataset_name = "",
+                                facet_factor = "",
+                                shape_factor = "",
+                                polygon = FALSE,
+                                remove_NA = TRUE,
+                                save_image = FALSE,
+                                save_path = "nmds.png",
+                                subtitle = "",
+                                appended_naming = FALSE) {
 
   if (remove_NA) { df %<>% drop_na(meta_factor) }
 
@@ -362,11 +360,10 @@ plot_nmds_by_factor <- function(df,
     original_df = df,
     meta_factor = meta_factor,
     dataset_name = dataset_name,
-    taxa_level = taxa_level,
     facet_factor = facet_factor,
     shape_factor = shape_factor,
     polygon = polygon,
-    subtitle_append = subtitle_append
+    plot_subtitle = subtitle
   )
 
   if (save_image) {
@@ -391,15 +388,13 @@ plot_nmds_by_factor <- function(df,
 }
 
 
-create_nmds_plot_by_factor <-
-  function(original_df,
-           meta_factor,
-           dataset_name,
-           taxa_level,
-           facet_factor,
-           shape_factor,
-           polygon,
-           subtitle_append) {
+create_nmds_plot_by_factor <- function(original_df,
+                                       meta_factor,
+                                       dataset_name,
+                                       facet_factor,
+                                       shape_factor,
+                                       polygon,
+                                       plot_subtitle) {
 
   df <- original_df
   meta_var <- sym(meta_factor)
@@ -417,9 +412,6 @@ create_nmds_plot_by_factor <-
   if (is_faceted) {
     plot_title %<>% paste(glue("across {facet_factor}"))
   }
-  plot_subtitle <- ifelse(taxa_level == "", "",
-                          glue("Taxonomic rank: {taxa_level}"))
-  plot_subtitle <- paste(plot_subtitle, subtitle_append)
 
   plot <- df %>%
     ggplot(aes(x = NMDS1, y = NMDS2), na.rm = TRUE) +
@@ -440,11 +432,7 @@ create_nmds_plot_by_factor <-
     plot <- plot + facet_wrap(vars(!!facet_var))
   }
 
-  if (is.factor(df[[meta_factor]]) & nlevels(df[[meta_factor]]) <= 5) {
-    plot <- plot +
-      scale_fill_viridis_d() +
-      scale_color_viridis_d()
-  } else if (is.numeric(df[[meta_factor]])) {
+  if (is.numeric(df[[meta_factor]])) {
     plot <- plot +
       scale_fill_viridis_c() +
       scale_color_viridis_c()
@@ -475,9 +463,8 @@ create_nmds_plot_by_factor <-
                               size = 3, alpha = 0.7, na.rm = TRUE, shape = 21)
   }
 
-
-  return(plot)
-  }
+  plot
+}
 
 bin_continuous_factor <- function(meta_table, factor_of_interest, n_bins=5) {
   still_trying <- TRUE

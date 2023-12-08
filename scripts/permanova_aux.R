@@ -8,25 +8,49 @@ library(phyloseq)
 
 analyses_wrap <- function(pseq,
                           fcs,
-                          base_outfile,
-                          factor_interaction = TRUE) {
+                          outdir,
+                          outfile_extension,
+                          taxa_level,
+                          factor_interaction = TRUE,
+                          rarefaction = FALSE) {
   factor_results_list <- list()
-  PERMANOVA_result_file <- glue("{taxa_out}/PERMANOVA_{base_outfile}_{taxa_level}.txt")
-  cat(glue("PERMANOVA via vegan::adonis2 for taxa level {str_to_upper(taxa_level)}\n\n\n"),
-      file = PERMANOVA_result_file)
+  PERMANOVA_result_file <- glue("{outdir}/PERMANOVA_{outfile_extension}.txt")
+  adonis_text_header_extension <- if (taxa_level == "woltka") {
+    glue("for Woltka functional profiling (KEGG KO counts)")
+  } else {
+    glue("for taxa level {str_to_upper(taxa_level)}")
+  }
+  adonis_text_header <- glue("PERMANOVA via vegan::adonis2 {adonis_text_header_extension}\n\n", .trim = FALSE)
+  cat(adonis_text_header, file = PERMANOVA_result_file)
 
   otu <- otu_table(pseq)
   meta <- as(sample_data(pseq), "data.frame")
   rownames(meta) <- sample_names(pseq)
-  dist <- vegdist(otu)
+
+  if (rarefaction) {
+    smallest_sample_count <- otu |> rowSums() |> min()
+    if (smallest_sample_count == 1) {
+      stop("Relative abundance values detected. Rarefaction option must be used with raw counts. Use pseq$base instead of pseq$rel.")
+    }
+    # Rarefy counts via avgdist
+    dist <- otu |> as.data.frame() |>
+      avgdist(dmethod = "bray", sample = smallest_sample_count)
+  } else {
+    dist <- vegdist(otu)
+  }
 
   adonis_result <- run_adonis(otu, meta, fcs, factor_interaction)
+
   sink(PERMANOVA_result_file, append = TRUE)
   print(adonis_result)
   sink()
 
   for (fc in fcs) {
-    subtitle <- ""
+    subtitle <- if (taxa_level == "woltka") {
+      "Woltka functional profiling (KEGG KO counts)"
+    } else {
+      glue("Taxonomic rank: {taxa_level}")
+    }
 
     homog_test <- anova(betadisper(dist, meta[[fc]]))
     cat("\nANOVA check on homogeneity of", fc, "\n", file = PERMANOVA_result_file, append = T)
@@ -34,7 +58,7 @@ analyses_wrap <- function(pseq,
     print(homog_test)
     sink()
     homog_pval <- homog_test$`Pr(>F)`[1]
-    subtitle <- glue("\n\nHomogeneity of variance p.val: {signif(homog_pval, 4)}")
+    subtitle <- glue("{subtitle}\nHomogeneity of variance p.val: {signif(homog_pval, 4)}")
 
     fc_adonis <- adonis_result[fc,]
     fc_adonis_R2 <- fc_adonis$R2[1]
@@ -43,7 +67,7 @@ analyses_wrap <- function(pseq,
     plot_nmds(dist, meta, fc,
               subtitle=subtitle,
               save_image=TRUE,
-              save_path=glue("{taxa_out}/nmds_{base_outfile}_{fc}.png"))
+              save_path=glue("{outdir}/nmds_{outfile_extension}_{fc}.png"))
     factor_results_list[[fc]] <- list(homog_pval = homog_pval,
                                       adonis_pval = fc_adonis_pval,
                                       adonis_R2 = fc_adonis_R2)
@@ -55,19 +79,13 @@ add_row_to_summary <- function(result_list,
                                summary_file,
                                taxa_level,
                                seq_depth,
-                               soil_depth="All",
-                               season="All",
-                               pos="All",
-                               note=""){
+                               subset) {
   for (fc in names(result_list)){
     summary_file <- summary_file |>
       add_row(meta_factor = fc,
               taxa_level = taxa_level,
               sequence_depth = seq_depth,
-              soil_depth = soil_depth,
-              season = season,
-              pos = pos,
-              note = note,
+              subset = subset,
               homogeneity_pval = result_list[[fc]]$homog_pval,
               permanova_pval = result_list[[fc]]$adonis_pval,
               permanova_R2 = result_list[[fc]]$adonis_R2)
@@ -79,7 +97,7 @@ add_row_to_summary <- function(result_list,
 
 # Analysis functions ------------------------------------------------------
 
-plot_nmds <- function(dist, meta, fc, save_image=FALSE, save_path, ...){
+plot_nmds <- function(dist, meta, fc, save_image=FALSE, save_path, subtitle, ...){
   nmds_obj <- metaMDS(dist)
   nmds_scores <- scores(nmds_obj) |>
     as.data.frame() |>
@@ -97,9 +115,9 @@ plot_nmds <- function(dist, meta, fc, save_image=FALSE, save_path, ...){
     df = nmds_scores,
     meta_factor = fc,
     dataset_name = "Timed",
-    taxa_level = taxa_level,
     shape_factor = "Depth",
     polygon = polygon,
+    subtitle = subtitle,
     ...
   )
 
@@ -157,13 +175,14 @@ scale_arrow <- function(end_x, end_y, minx, maxx, miny, maxy) {
   a_scaled <- c(x = end_x * scale_factor, y = end_y * scale_factor)
 }
 
-run_adonis <- function(otu, meta, fcs, factor_interaction=TRUE){
+run_adonis <- function(otu, meta, fcs, factor_interaction=TRUE, n_permutations = 9999, ...){
   formula_char <- ifelse(factor_interaction, "*", "+")
   formula <- as.formula(glue("otu ~ {str_flatten(fcs, collapse = formula_char)}"))
 
   permanova <- adonis2(formula = formula,
-                      data = meta,
-                      permutations = n_permutations,
-                      method = "bray")
+                       data = meta,
+                       permutations = n_permutations,
+                       method = "bray",
+                       ...)
 }
 
