@@ -1,4 +1,16 @@
-# Load libraries
+# Beta diversity testing and visualization via PERMANOVA and NMDS
+#
+# Calculates Bray-Curtis distances on count data and uses those values to test
+# for statistically separate groups within metadata factors. PERMANOVA models
+# how much each included factor contributes to the data's variance. These values
+# were used to determine which factors to subset by to investigate the
+# contribution of Month, which has a weak R2 but significant pvalue.
+#
+# Shallow and deep sequencing is analysed at the phylum and genus levels. Woltka
+# functional profiling (KEGG KO counts) are also analysed. Deep sequencing (and
+# thus woltka counts, which were produced from deep sequencing), has fewer
+# samples and therefore cannot tolerate subsetting well due to low sample count.
+
 library(ggplot2)
 library(dplyr)
 library(vegan)
@@ -40,6 +52,7 @@ for (seq_depth in c("shallow", "deep")) {
   # woltka (functional) treated as "taxa_level" for ease of results saving
   for (taxa_level in c("phylum", "genus", "woltka")) {
     if (seq_depth == "shallow" && taxa_level == "woltka") next
+
     taxa_out <- glue("{depth_out}/{taxa_level}/")
     dir.create(taxa_out)
 

@@ -18,11 +18,10 @@ library(dunn.test)
 source("scripts/aux_functions.R")
 source("scripts/alpha_diversity_aux.R")
 
-# 0.1 Define globals/output paths -----------------------------------------
-
 main_out <- glue("results/alpha_diversity")
 timed_meta <- get_timed_metadata()
 
+# Analysis loops for taxa counts
 for (seq_depth in c("shallow", "deep")) {
     depth_out <- glue("{main_out}/{seq_depth}_sequencing/")
   for (taxa_level in c("phylum", "genus")) {
@@ -40,6 +39,7 @@ for (seq_depth in c("shallow", "deep")) {
   }
 }
 
+# Analysis of functional profiles
 woltka_out <- glue("{main_out}/woltka/")
 dir.create(woltka_out)
 
