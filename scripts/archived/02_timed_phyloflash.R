@@ -2,7 +2,7 @@ pkgs = c("tidyverse", "vegan", "glue", "indicspecies")
 lapply(pkgs, library, character.only = TRUE)
 
 source("scripts/aux_functions.R")
-
+source("scripts/archived/archived_aux_functions.R")
 
 # 0.1 Define globals/output paths --------------------------------------------------
 main_out <- "results/deep/timed/phyloflash"
@@ -18,25 +18,8 @@ lapply(c(main_out, nmds_out, indicspecies_out, alphadiv_out),
        create_dir_if_nonexistant)
 
 
-# ---- 0.2 Read in and tidy timed metadata -----------------------------------------
-timed_meta <- read_csv("metadata/Metadata-IAG-Timed2-v3_2.csv") |>
-  filter(!str_detect(Site, "B\\d")) |>
-  rename(sample = MBI_ID)
-
-timed_meta <- timed_meta |>
-  mutate(Month = case_when(Year == "1998" | Year == "2007" ~ Year,
-                           TRUE ~ Month))
-timed_meta$Month <- ordered(timed_meta$Month, levels = c("0",
-                                                         "0.07",
-                                                         "0.5",
-                                                         "1",
-                                                         "3",
-                                                         "6",
-                                                         "12",
-                                                         "18",
-                                                         "1998",
-                                                         "2007"))
-timed_meta$Year <- as.character(timed_meta$Year)
+# 0.2 Read in metadata ----------------------------------------------------
+timed_meta <- get_timed_metadata()
 
 
 # ---- 1. Read in and filter taxonomy data ----------------------------------------
