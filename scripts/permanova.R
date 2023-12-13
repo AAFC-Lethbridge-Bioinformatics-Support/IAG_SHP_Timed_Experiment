@@ -21,7 +21,7 @@ source("scripts/aux_functions.R")
 source("scripts/permanova_aux.R")
 
 # Setup -------------------------------------------------------------------
-main_out <- glue("results/permanova2")
+main_out <- glue("results/permanova")
 timed_meta <- get_timed_metadata()
 
 summary_filename <- glue("{main_out}/permanova_results_summary.csv")
@@ -56,13 +56,12 @@ for (seq_depth in c("shallow", "deep")) {
     taxa_out <- glue("{depth_out}/{taxa_level}/")
     dir.create(taxa_out)
 
-    if (taxa_level == "woltka") {
-      counts <- get_processed_KO(timed_meta)
-      pseq <- create_phyloseq(counts, timed_meta)
+    counts <- if (taxa_level == "woltka") {
+      get_processed_KO(timed_meta)
     } else {
-      counts <- get_processed_taxonomy(seq_depth, taxa_level, timed_meta)
-      pseq <- create_phyloseq(counts, timed_meta)
+      get_processed_taxonomy(seq_depth, taxa_level, timed_meta)
     }
+    pseq <- create_phyloseq(counts, timed_meta)
 
     # All factors (no filters)
     results_summary <- analyses_wrap(pseq = pseq$rel,
