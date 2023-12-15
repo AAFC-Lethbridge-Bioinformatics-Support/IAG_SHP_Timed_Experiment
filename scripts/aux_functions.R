@@ -54,7 +54,7 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
 # process and format the data, then return a named list with several formats:
 # raw counts, filtered counts, wide filtered counts, and wide filtered counts as
 # a matrix (NAs set to 0)
-get_processed_taxonomy <- function(sequence_depth, taxa_level, meta){
+get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=TRUE){
   taxa_long <- if(sequence_depth == "shallow"){
     read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
   } else if(sequence_depth == "deep"){
@@ -65,14 +65,40 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta){
 
   # Reformat and filter some columns.
   # Remove pre-2020 samples, filter unclassified taxa, remove suspect sample
-  # 0597, and apply 0.01% per-sample threshold
+  # 0597
   taxa_1_filtered <- taxa_long |>
     mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
     filter(sample != "S00JY-0597") |>
     filter(sample %in% filter(meta, Year == 2020)$sample) |>
-    filter(!str_detect(taxon_name, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]")) |>
-    filter(reads > sum(reads)*0.0001, .by = sample) |>
-    mutate(taxon_name = str_extract(taxon_name, ";([^;]+);$", group = 1))
+    filter(!str_detect(taxon_name, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]"))
+
+
+
+    # Shorten lineage to the name at the relevant taxa level
+  if (taxa_level == "phylum") {
+    taxa_1_filtered <- taxa_1_filtered |>
+      mutate(taxon_name = str_extract(taxon_name, ";([^;]+);$", group = 1))
+  } else if (taxa_level == "genus") {
+    # Handle clashes where the same name is present >once despite distinct
+    # lineage (much more likely for genera)
+    clashing_taxa <- taxa_1_filtered |>
+      distinct(taxon_name) |>
+      mutate(taxon_name = str_extract(taxon_name, ";([^;]+);$", group = 1)) |>
+      count(taxon_name) |> filter(n > 1) |> pull(taxon_name)
+    taxa_1_filtered <- taxa_1_filtered |>
+      mutate(lineage_tokens = taxon_name |> str_replace(";$", "") |> str_split(";"),
+             final_2_tokens = lapply(lineage_tokens, tail, 2),
+             taxon_name = ifelse(lapply(final_2_tokens, last) %in% clashing_taxa,
+                                 str_c(lapply(final_2_tokens, last), " (", lapply(final_2_tokens, first), ")"),
+                                 lapply(final_2_tokens, last)) |> unlist()) |>
+      select(-c(lineage_tokens, final_2_tokens))
+  }
+
+  # apply 0.01% per-sample threshold
+  if (min_filter) {
+    taxa_1_filtered <- taxa_1_filtered |>
+      filter(reads > sum(reads)*0.0001, .by = sample)
+  }
 
   taxa_2_wide <- taxa_1_filtered |>
     select(-c(file, taxon_id, percent)) |>
