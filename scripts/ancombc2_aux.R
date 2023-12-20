@@ -8,13 +8,20 @@ library(vegan)
 library(phyloseq)
 library(ANCOMBC)
 
+# Used as argument to ANCOMBC2 for parallel computing
+N_CPU <- 4
 
 volc_plot <- function(df, plot_title="", subtitle="") {
   # determine x range
   x_default <- 1.35
-  x_data <- max(abs(df$log2fc), na.rm = TRUE)
-  # x_use <- max(x_default, x_data) + 0.15
-  x_use <- x_data + 0.15
+  x_data <- if (any(df$diff)) {
+    max(abs(filter(df, diff)$log2fc), na.rm = TRUE)
+  } else {
+    max(abs(df$log2fc), na.rm = TRUE)
+  }
+  # Use 20% above the greatest absolute, signficant (if any) point to limit
+  # extreme outliers below significance
+  x_use <- x_data*1.2
 
   # determine y range
   y_default <- 1.40
@@ -74,13 +81,25 @@ sigdif_taxa_plot <- function(sigdif_taxa, ancom_result, meta) {
 
 
 # outputs: volcano plot, sigdif LM plots, sigdif table
-ancombc_wrap <- function(pseq, formula, meta, taxa_level, taxa_out, filename_append="") {
-  # month as continuous variable
-  ancom_result <- ancombc2(data = pseq,
-                           fix_formula = formula,
-                           p_adj_method = "BH",
-                           n_cl = 4,
-                           pseudo_sens = TRUE)
+ancombc_wrap <- function(pseq, formula, meta, outdir, subtitle="", filename_append="", use_saved_object=TRUE) {
+  ancom_object_path <- glue("{outdir}/ancom_month_result{filename_append}.rds")
+  ancom_result <- if (file.exists(ancom_object_path) && use_saved_object) {
+    readRDS(ancom_object_path)
+  } else {
+    start_time <- Sys.time()
+    ancom_result <- ancombc2(data = pseq,
+             fix_formula = formula,
+             p_adj_method = "BH",
+             n_cl = N_CPU,
+             pseudo_sens = TRUE)
+    end_time <- Sys.time()
+    message(glue("ANCOMBC2 ran for {end_time - start_time} mins. {filename_append}"))
+    saveRDS(ancom_result, ancom_object_path)
+    ancom_result
+  }
+
+
+
   ancom_tidy <- format_ancombc_results(ancom_result)
 
   # pull out month results
@@ -90,25 +109,25 @@ ancombc_wrap <- function(pseq, formula, meta, taxa_level, taxa_out, filename_app
   month_only |> select(taxon, log2fc, q, diff, direction,
                        passed.ss) |>
     arrange(-diff, -passed.ss, q) |>
-    write_csv(file = glue("{taxa_out}/da-table_month-continuous{filename_append}.csv"))
+    write_csv(file = glue("{outdir}/da-table_month-continuous{filename_append}.csv"))
 
   # make and save volcano plot
   v_plot <- volc_plot(month_only, "Differential abundance across Month",
-                      subtitle = glue("Taxa level: {taxa_level}"))
+                      subtitle = subtitle)
   ggsave(v_plot,
-         filename = glue("{taxa_out}/volcplot_month-continuous{filename_append}.png"))
+         filename = glue("{outdir}/volcplot_month-continuous{filename_append}.png"))
 
   if(any(month_only$diff)) {
     # make and save differentially abundant taxa linear model plots
     sig_taxa <- month_only |> filter(diff == TRUE) |> arrange(taxon) |> pull(taxon)
     if (length(sig_taxa > 25)) {
-      save_multi_da_plots(sig_taxa, ancom_result, meta, filename_append)
+      save_multi_da_plots(sig_taxa, ancom_result, meta, outdir, filename_append)
     } else {
       da_plot <- sigdif_taxa_plot(sigdif_taxa = sig_taxa,
                                   ancom_result = ancom_result,
                                   meta = timed_meta)
       ggsave(da_plot,
-             filename = glue("{taxa_out}/da-plot_month-continuous{filename_append}.png"),
+             filename = glue("{outdir}/da-plot_month-continuous{filename_append}.png"),
              width = 9,
              height = 7)
     }
@@ -119,7 +138,7 @@ ancombc_wrap <- function(pseq, formula, meta, taxa_level, taxa_out, filename_app
 }
 
 # split sigdif DA taxa into groups of 25 and save separate plots (for legibility)
-save_multi_da_plots <- function(sig_taxa, ancom_result, meta, filename_append){
+save_multi_da_plots <- function(sig_taxa, ancom_result, meta, outdir, filename_append){
   chunks <- split(sig_taxa, ceiling(seq_along(sig_taxa)/25))
   for (nm in names(chunks)) {
     da_plot <- sigdif_taxa_plot(sigdif_taxa = chunks[[nm]],
@@ -128,7 +147,7 @@ save_multi_da_plots <- function(sig_taxa, ancom_result, meta, filename_append){
     padded_name <- str_pad(nm, width = max(nchar(names(chunks))),
                            side = "left", pad = "0")
     ggsave(da_plot,
-           filename = glue("{taxa_out}/da-plot_month-continuous{filename_append}_{padded_name}.png"),
+           filename = glue("{outdir}/da-plot_month-continuous{filename_append}_{padded_name}.png"),
            width = 9,
            height = 7)
   }
