@@ -61,73 +61,172 @@ volc_plot <- function(df, plot_title="", subtitle="") {
   return(da_plot)
 }
 
-sigdif_taxa_plot <- function(sigdif_taxa, ancom_result, meta) {
+
+plot_sigdif_taxa <- function(ancom_result, plot_var, sig_taxa) {
+  if (!plot_var %in% colnames(ancom_result$meta)) stop(glue("Specified metadata {plot_var} variable not in metadata table"))
   # Why does the bias correct log table have NAs?
   sig_log_table <- ancom_result$bias_correct_log_table |>
     rownames_to_column("taxon_name") |>
     pivot_longer(cols = !taxon_name, names_to = "sample", values_to = "bias.corrected.log.reads") |>
-    filter(taxon_name %in% sigdif_taxa) |>
+    filter(taxon_name %in% sig_taxa) |>
     mutate(taxon_name = str_replace(taxon_name, "Candidatus", "Ca")) |>
-    inner_join(meta)
+    inner_join(ancom_result$meta)
 
-  sig_log_table |>
-    ggplot(aes(x = month.continuous, y = bias.corrected.log.reads)) +
-    geom_point() +
-    geom_smooth(method = "lm") +
+  plot <- sig_log_table |>
+    ggplot(aes(x = .data[[plot_var]], y = bias.corrected.log.reads)) +
+    theme_bw()
+
+  # Numeric factors will make scatter plots, rather than box plots
+  plot <- if (is.numeric(sig_log_table[[plot_var]])) {
+    plot +
+      geom_point() +
+      geom_smooth(method = "lm")
+  } else {
+    plot +
+      geom_boxplot() +
+      geom_jitter(color = "darkgrey", alpha = 0.7) +
+      theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+  }
+
+  plot +
     facet_wrap(taxon_name ~ ., scales = "free_y") +
-    theme_bw() +
-    labs(title = "Significantly different taxa across Month")
+    labs(title = glue("Significantly different taxa across {plot_var}"))
+}
+
+# split sigdif DA taxa into groups of 25 and save separate plots (for legibility)
+save_multi_da_plots <- function(ancom_result, plot_var, sig_taxa, outdir, filename_append){
+  chunks <- split(sig_taxa, ceiling(seq_along(sig_taxa)/25))
+  for (nm in names(chunks)) {
+    da_plot <- plot_sigdif_taxa(ancom_result = ancom_result,
+                                plot_var = plot_var,
+                                sig_taxa = chunks[[nm]])
+    padded_name <- str_pad(nm, width = max(nchar(names(chunks))),
+                           side = "left", pad = "0")
+    ggsave(da_plot,
+           filename = glue("{outdir}/da-plot_{plot_var}{filename_append}_{padded_name}.png"),
+           width = 10.5,
+           height = 8)
+  }
 }
 
 
-# outputs: volcano plot, sigdif LM plots, sigdif table
-ancombc_wrap <- function(pseq, formula, meta, outdir, subtitle="", filename_append="", use_saved_object=TRUE) {
-  ancom_object_path <- glue("{outdir}/ancom_month_result{filename_append}.rds")
-  ancom_result <- if (file.exists(ancom_object_path) && use_saved_object) {
-    readRDS(ancom_object_path)
+# Returns ANCOMBC2 non-pairwise results in tidy format, pivoting and creating a
+# column that specifies metavariable.
+tidy_ancombc_res <- function(ancom_result) {
+    ancom_tidy <- ancom_result$res |>
+      rename_with(.cols = starts_with("passed_ss"), .fn = str_replace, "_", ".") |>
+      pivot_longer(cols = !taxon, names_sep = "_", names_to = c(".value", "metavariable")) |>
+      mutate(log2fc = log2(exp(lfc)),
+             direction = ifelse(q < 0.05,
+                                ifelse(log2fc > 0,
+                                       "Increase",
+                                       "Decrease"),
+                                "No Change"))
+
+}
+
+# Returns ANCOMBC2 pairwise results in tidy format, pivoting and creating a
+# column that specifies the pairwise comparison. Providing the metadata table
+# (accessible by ancom_result$meta) will add the missing "default" group to the
+# comparison column values. This remedies how ancombc2 drops the name of one
+# group from the column names.
+tidy_ancombc_res_pair <- function(ancom_result, meta_var) {
+  ancom_tidy <- ancom_result$res_pair |>
+    rename_with(.cols = starts_with("passed_ss"), .fn = str_replace, "_", ".") |>
+    rename_with(.fn = str_replace, .cols = !taxon, "_", ">") |>
+    pivot_longer(cols = !taxon, names_sep = ">", names_to = c(".value", "comparison")) |>
+    mutate(comparison = str_replace_all(comparison, meta_var, ""),
+           log2fc = log2(exp(lfc)),
+           direction = ifelse(q < 0.05,
+                              ifelse(log2fc > 0,
+                                     "Increase",
+                                     "Decrease"),
+                              "No Change"))
+
+  if (!is.null(ancom_result$meta)) {
+    all_vals <- ancom_result$meta[[meta_var]] |> unique()
+    result_vals <- ancom_tidy$comparison |> unique()
+    missing_val <- setdiff(all_vals, result_vals)
+    if (length(missing_val) > 1) stop("More than 1 missing value detected")
+
+    ancom_tidy |>
+      mutate(comparison = ifelse(!str_detect(comparison, "_"),
+                                 paste0(comparison, "_", missing_val),
+                                 comparison))
   } else {
-    start_time <- Sys.time()
-    ancom_result <- ancombc2(data = pseq,
-             fix_formula = formula,
-             p_adj_method = "BH",
-             n_cl = N_CPU,
-             pseudo_sens = TRUE)
-    end_time <- Sys.time()
-    message(glue("ANCOMBC2 ran for {end_time - start_time} mins. {filename_append}"))
-    saveRDS(ancom_result, ancom_object_path)
-    ancom_result
+    message("Metadata not attached to ancombc results (ancom_result$meta). Missing group name has not been appended to comparison column.")
+    ancom_tidy
+  }
+}
+
+ancombc2_wrap <- function(pseq,
+                          meta_var,
+                          factors,
+                          outdir,
+                          filename_append="",
+                          use_saved_object = TRUE,
+                          method = c("default", "pairwise")) {
+  method <- rlang::arg_match(method)
+  ancom_object_path <- glue("{outdir}/ancom_{meta_var}_result{filename_append}.rds")
+
+  if (file.exists(ancom_object_path) && use_saved_object) {
+    return(readRDS(ancom_object_path))
   }
 
+  start_time <- Sys.time()
+  if (method == "default") {
+    ancom_result <- ancombc2(data = pseq,
+                             fix_formula = str_flatten(factors, collapse = "+"),
+                             p_adj_method = "BH",
+                             n_cl = N_CPU,
+                             pseudo_sens = TRUE)
+  } else if (method == "pairwise") {
+    ancom_result <- ancombc2(data = pseq,
+                             fix_formula = str_flatten(factors, collapse = "+"),
+                             p_adj_method = "BH",
+                             n_cl = N_CPU,
+                             pseudo_sens = TRUE,
+                             group = meta_var,
+                             pairwise = TRUE)
+  }
+  end_time <- Sys.time()
+  message(glue("ANCOMBC2 ran for {end_time - start_time} mins. {meta_var}{filename_append}"))
+  # Package metadata with ancombc result
+  ancom_result$meta <- sample_data(pseq) |> as_tibble(rownames="sample")
+  saveRDS(ancom_result, ancom_object_path)
+
+  ancom_result
+}
 
 
-  ancom_tidy <- format_ancombc_results(ancom_result)
+ancombc_wrap_process <- function(pseq, factors, outdir, subtitle="", filename_append="") {
+  ancom_result <- ancombc2_wrap(
+    pseq = pseq,
+    meta_var = "Process.character",
+    factors = factors,
+    outdir = outdir,
+    method = "pairwise"
+  )
+  ancom_tidy <- tidy_ancombc_res_pair(ancom_result,meta_var = "Process.character")
 
-  # pull out month results
-  month_only <- ancom_tidy |> filter(metavariable == "month.continuous")
+  ancom_tidy |> arrange(-diff, -passed.ss, comparison, q) |>
+    write_csv(file = glue("{outdir}/da-table_Process{filename_append}.csv"))
 
-  # save csv
-  month_only |> select(taxon, log2fc, q, diff, direction,
-                       passed.ss) |>
-    arrange(-diff, -passed.ss, q) |>
-    write_csv(file = glue("{outdir}/da-table_month-continuous{filename_append}.csv"))
-
-  # make and save volcano plot
-  v_plot <- volc_plot(month_only, "Differential abundance across Month",
-                      subtitle = subtitle)
-  ggsave(v_plot,
-         filename = glue("{outdir}/volcplot_month-continuous{filename_append}.png"))
-
-  if(any(month_only$diff)) {
-    # make and save differentially abundant taxa linear model plots
-    sig_taxa <- month_only |> filter(diff == TRUE) |> arrange(taxon) |> pull(taxon)
-    if (length(sig_taxa > 25)) {
-      save_multi_da_plots(sig_taxa, ancom_result, meta, outdir, filename_append)
+  if(any(ancom_tidy$diff)) {
+    sig_taxa <- ancom_tidy |> filter(diff) |> arrange(taxon) |> pull(taxon) |> unique()
+    # Use "Process" instead of "Process.character" to order groups in plots
+    if (length(sig_taxa) > 25) {
+      save_multi_da_plots(ancom_result = ancom_result,
+                          plot_var = "Process",
+                          sig_taxa = sig_taxa,
+                          outdir = outdir,
+                          filename_append = filename_append)
     } else {
-      da_plot <- sigdif_taxa_plot(sigdif_taxa = sig_taxa,
-                                  ancom_result = ancom_result,
-                                  meta = timed_meta)
+      da_plot <- plot_sigdif_taxa(ancom_result = ancom_result,
+                                  plot_var = "Process",
+                                  sig_taxa = sig_taxa)
       ggsave(da_plot,
-             filename = glue("{outdir}/da-plot_month-continuous{filename_append}.png"),
+             filename = glue("{outdir}/da-plot_Process{filename_append}.png"),
              width = 9,
              height = 7)
     }
@@ -137,34 +236,51 @@ ancombc_wrap <- function(pseq, formula, meta, outdir, subtitle="", filename_appe
   }
 }
 
-# split sigdif DA taxa into groups of 25 and save separate plots (for legibility)
-save_multi_da_plots <- function(sig_taxa, ancom_result, meta, outdir, filename_append){
-  chunks <- split(sig_taxa, ceiling(seq_along(sig_taxa)/25))
-  for (nm in names(chunks)) {
-    da_plot <- sigdif_taxa_plot(sigdif_taxa = chunks[[nm]],
-                                ancom_result = ancom_result,
-                                meta = meta)
-    padded_name <- str_pad(nm, width = max(nchar(names(chunks))),
-                           side = "left", pad = "0")
-    ggsave(da_plot,
-           filename = glue("{outdir}/da-plot_month-continuous{filename_append}_{padded_name}.png"),
-           width = 9,
-           height = 7)
+# outputs: volcano plot, sigdif LM plots, sigdif table
+ancombc_wrap_month <- function(pseq,
+                               factors,
+                               outdir,
+                               subtitle="",
+                               filename_append="") {
+  ancom_result <- ancombc2_wrap(
+    pseq = pseq,
+    meta_var = "month-continuous",
+    factors = factors,
+    outdir = outdir,
+    filename_append = filename_append,
+    method = "default"
+  )
+
+  ancom_tidy <- tidy_ancombc_res(ancom_result)
+
+  # pull out month results
+  month_only <- ancom_tidy |> filter(metavariable == "month.continuous")
+  # save csv
+  month_only |> select(-metavariable) |>
+    arrange(-diff, -passed.ss, q) |>
+    write_csv(file = glue("{outdir}/da-table_month-continuous{filename_append}.csv"))
+
+  # make and save volcano plot
+  volc_plot(month_only, "Differential abundance across Month",
+            subtitle = subtitle) |>
+    ggsave(filename = glue("{outdir}/volcplot_month-continuous{filename_append}.png"))
+
+  if(any(month_only$diff)) {
+    # make and save differentially abundant taxa linear model plots
+    sig_taxa <- month_only |> filter(diff) |> arrange(taxon) |> pull(taxon)
+    if (length(sig_taxa) > 25) {
+      save_multi_da_plots(ancom_result, "month.continuous", sig_taxa, outdir, filename_append)
+    } else {
+      da_plot <- plot_sigdif_taxa(ancom_result = ancom_result,
+                                  plot_var = "month.continuous",
+                                  sig_taxa = sig_taxa)
+      ggsave(da_plot,
+             filename = glue("{outdir}/da-plot_month-continuous{filename_append}.png"),
+             width = 9,
+             height = 7)
+    }
+
+  } else {
+    message("ANCOMBC2: No significantly different taxa were found.")
   }
-}
-
-format_ancombc_results <- function(ancom_result) {
-  # make tidy format
-  ancom_tidy <- ancom_result$res |>
-    rename_with(.cols = starts_with("passed_ss"), .fn = str_replace, "_", ".") |>
-    pivot_longer(cols = !taxon, names_sep = "_", names_to = c(".value", "metavariable"))
-
-  # add log2, direction, and pseudo-sensitivity (boolean) columns
-  ancom_tidy |>
-    mutate(log2fc = log2(exp(lfc)),
-           direction = ifelse(q < 0.05,
-                              ifelse(log2fc > 0,
-                                     "Increase",
-                                     "Decrease"),
-                              "No Change"))
 }

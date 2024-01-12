@@ -21,10 +21,7 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
   timed_meta$Month <- as.numeric(timed_meta$Month)
   timed_meta <- timed_meta |>
     mutate(Month = case_when(Year == "1998" | Year == "2007" ~ as.numeric(Year),
-                             TRUE ~ Month),
-           month_group = case_when(Month < 1 ~ "<1 month",
-                                   Month <= 6 ~ "1-6 months",
-                                   Month <= 18 ~ "12-18 months"))
+                             TRUE ~ Month))
   timed_meta$Month <- ordered(timed_meta$Month,
                               levels = c("0",
                                          "0.07",
@@ -36,10 +33,7 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
                                          "18",
                                          "1998",
                                          "2007"))
-  timed_meta$month_group <- ordered(timed_meta$month_group,
-                                    levels = c("<1 month",
-                                               "1-6 months",
-                                               "12-18 months"))
+
   timed_meta$month_continuous <- as.numeric(levels(timed_meta$Month))[timed_meta$Month]
   timed_meta$Year <- as.character(timed_meta$Year)
   timed_meta$Process <- ordered(timed_meta$Process,
@@ -129,7 +123,7 @@ get_processed_KO <- function(meta) {
                  names_to = "sample",
                  values_to = "reads")
 
-  # FILTER out the weirdo sample
+  # FILTER out the odd sample and keep only 2020 samples
   ko_long_filtered <- ko_long |>
     filter(sample != "S00JY-0597" & sample %in% filter(meta, Year == 2020)$sample)
 
