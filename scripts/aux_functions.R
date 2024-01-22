@@ -117,7 +117,6 @@ get_processed_KO <- function(meta) {
     rename("name" = Name,
            "ko_gene_ID" = `#FeatureID`)
 
-  # Pivot longer and get relative abundance
   ko_long <- ko |>
     pivot_longer(cols = starts_with("S00JY"),
                  names_to = "sample",
@@ -145,6 +144,47 @@ get_processed_KO <- function(meta) {
        matrix = ko_matrix,
        gene_key = gene_names)
 
+}
+
+# Read the woltka pathway data, process and format it, then return a named list
+# with several formats: long (tidy) counts, wide (pathways as columns), and wide
+# matrix
+get_processed_pathways <- function(meta) {
+  pw_names <- read_tsv("data/pathway_names.tsv")
+  pw_counts <- read_tsv("data/pathway_rpk_filtered-0-001p.tsv") |>
+    rename("pathwayID" = `#FeatureID`)
+
+  # add pathway names and groups
+  pw_counts <- pw_counts |>
+    left_join(pw_names)
+
+  # Pivot longer and get relative abundance
+  pw_long <- pw_counts |>
+    pivot_longer(cols = starts_with("S00JY"),
+                 names_to = "sample",
+                 values_to = "reads")
+
+  # FILTER out the odd sample and keep only 2020 samples
+  pw_long_filtered <- pw_long |>
+    filter(sample != "S00JY-0597" & sample %in% filter(meta, Year == 2020)$sample)
+
+  pathway_key <- pw_long_filtered |> distinct(pathwayID, pathway_name, pathway_group)
+
+  # Pivot for samples as rows
+  pw_wide <- pw_long_filtered |>
+    pivot_wider(id_cols = sample,
+                names_from = pathwayID,
+                values_from = reads)
+
+  pw_matrix <- pw_wide |>
+    column_to_rownames("sample") |>
+    as.matrix()
+  pw_matrix[is.na(pw_matrix)] <- 0
+
+  list(long = pw_long_filtered,
+       wide = pw_wide,
+       matrix = pw_matrix,
+       pathway_key = pathway_key)
 }
 
 # Given the taxa data outputted from get_processed_taxonomy() and the metadata
