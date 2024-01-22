@@ -209,7 +209,21 @@ ancombc_wrap_process <- function(pseq, factors, outdir, subtitle="", filename_ap
   )
   ancom_tidy <- tidy_ancombc_res_pair(ancom_result,meta_var = "Process.character")
 
+  # Format ANCOMBC2 results to be consistent with experiment design
   ancom_tidy |> arrange(-diff, -passed.ss, comparison, q) |>
+    mutate(comparison = case_when(comparison == "Sieved_Ground" ~ "Ground_Sieved",
+                                  comparison == "Sieved_Air-dried" ~ "Air-dried_Sieved",
+                                  comparison == "Fresh_Air-dried" ~ "Air-dried_Fresh",
+                                  TRUE ~ comparison),
+           log2fc = case_when(comparison %in% c("Ground_Sieved", "Air-dried_Sieved", "Air-dried_Fresh") ~ -log2fc,
+                              TRUE ~ log2fc),
+           lfc = case_when(comparison %in% c("Ground_Sieved", "Air-dried_Sieved", "Air-dried_Fresh") ~ -lfc,
+                           TRUE ~ lfc),
+           W = case_when(comparison %in% c("Ground_Sieved", "Air-dried_Sieved", "Air-dried_Fresh") ~ -W,
+                         TRUE ~ W),
+           direction = case_when(comparison %in% c("Ground_Sieved", "Air-dried_Sieved", "Air-dried_Fresh") & direction == "Decrease" ~ "Increase",
+                                 comparison %in% c("Ground_Sieved", "Air-dried_Sieved", "Air-dried_Fresh") & direction == "Increase" ~ "Decrease",
+                                 TRUE ~ direction)) |>
     write_csv(file = glue("{outdir}/da-table_Process{filename_append}.csv"))
 
   if(any(ancom_tidy$diff)) {
