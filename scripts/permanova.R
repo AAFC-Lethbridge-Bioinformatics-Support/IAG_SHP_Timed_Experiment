@@ -25,17 +25,14 @@ main_out <- glue("results/permanova")
 timed_meta <- get_timed_metadata()
 
 summary_filename <- glue("{main_out}/permanova_results_summary.csv")
-results_summary <- if (file.exists(summary_filename)){
-  read.csv(summary_filename)
-} else {
-  data.frame(meta_factor=character(),
-             taxa_level=character(),
-             sequence_depth=character(),
-             subset=character(),
-             homogeneity_pval=double(),
-             permanova_pval=double(),
-             permanova_R2=double())
-}
+results_summary <- data.frame(meta_factor=character(),
+                              unit_level=character(),
+                              sequence_depth=character(),
+                              subset=character(),
+                              homogeneity_pval=double(),
+                              permanova_pval=double(),
+                              permanova_R2=double())
+
 
 # 1. Run analyses ---------------------------------------------------------
 for (seq_depth in c("shallow", "deep")) {
@@ -49,17 +46,19 @@ for (seq_depth in c("shallow", "deep")) {
     c("month_continuous","Process","Season","Depth")
   } else { stop("Sequence depth should be specified as 'shallow' or 'deep'")}
 
-  # woltka (functional) treated as "taxa_level" for ease of results saving
-  for (taxa_level in c("phylum", "genus", "woltka")) {
-    if (seq_depth == "shallow" && taxa_level == "woltka") next
+  for (unit_level in c("phylum", "genus", "woltka_KO", "woltka_pathways")) {
+    # Woltka is only for deep sequences
+    if (seq_depth == "shallow" &&  str_detect(unit_level, "woltka")) next
 
-    taxa_out <- glue("{depth_out}/{taxa_level}/")
+    taxa_out <- glue("{depth_out}/{unit_level}/")
     dir.create(taxa_out)
 
-    counts <- if (taxa_level == "woltka") {
+    counts <- if (unit_level == "woltka_KO") {
       get_processed_KO(timed_meta)
+    } else if (unit_level == "woltka_pathways") {
+      get_processed_pathways(timed_meta)
     } else {
-      get_processed_taxonomy(seq_depth, taxa_level, timed_meta)
+      get_processed_taxonomy(seq_depth, unit_level, timed_meta)
     }
     pseq <- create_phyloseq(counts, timed_meta)
 
@@ -67,12 +66,12 @@ for (seq_depth in c("shallow", "deep")) {
     results_summary <- analyses_wrap(pseq = pseq$rel,
                                      fcs = fcs,
                                      outdir = taxa_out,
-                                     taxa_level = taxa_level,
+                                     unit_level = unit_level,
                                      outfile_extension = "all") %>%
       # exclude results of key factors because they require specific filters
       keep(!names(.) %in% c("Process", "month_continuous")) |>
       add_row_to_summary(summary_file = results_summary,
-                         taxa_level = taxa_level,
+                         unit_level = unit_level,
                          seq_depth = seq_depth,
                          subset = "all")
     # Process factor
@@ -81,11 +80,11 @@ for (seq_depth in c("shallow", "deep")) {
     results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Month==0),
                                      fcs = fcs[fcs!="month_continuous"],
                                      outdir = taxa_out,
-                                     taxa_level = taxa_level,
+                                     unit_level = unit_level,
                                      outfile_extension = "t0",
                                      factor_interaction = FALSE) |>
       add_row_to_summary(summary_file = results_summary,
-                         taxa_level = taxa_level,
+                         unit_level = unit_level,
                          seq_depth = seq_depth,
                          subset = "t0")
 
@@ -94,10 +93,10 @@ for (seq_depth in c("shallow", "deep")) {
     results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"),
                                      fcs = fcs[fcs!="Process"],
                                      outdir = taxa_out,
-                                     taxa_level = taxa_level,
+                                     unit_level = unit_level,
                                      outfile_extension = "ground") |>
       add_row_to_summary(summary_file = results_summary,
-                         taxa_level = taxa_level,
+                         unit_level = unit_level,
                          seq_depth = seq_depth,
                          subset = "ground")
 
@@ -107,19 +106,19 @@ for (seq_depth in c("shallow", "deep")) {
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground0-15") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground0-15")
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground15-30") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground15-30")
 
@@ -127,19 +126,19 @@ for (seq_depth in c("shallow", "deep")) {
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"&Season=="Spring"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground0-15spring") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground0-15spring")
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="0-15"&Season=="Fall"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="Season"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground0-15fall") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground0-15fall")
 
@@ -147,28 +146,28 @@ for (seq_depth in c("shallow", "deep")) {
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="M"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground15-30M") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground15-30M")
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="L"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground15-30L") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground15-30L")
       results_summary <- analyses_wrap(pseq = subset_samples(pseq$rel, Process=="Ground"&Depth=="15-30"&POS=="U"),
                                        fcs = fcs[fcs!="Process"&fcs!="Depth"&fcs!="POS"],
                                        outdir = taxa_out,
-                                       taxa_level = taxa_level,
+                                       unit_level = unit_level,
                                        outfile_extension = "ground15-30U") |>
         add_row_to_summary(summary_file = results_summary,
-                           taxa_level = taxa_level,
+                           unit_level = unit_level,
                            seq_depth = seq_depth,
                            subset = "ground15-30U")
     }

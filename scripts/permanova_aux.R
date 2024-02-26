@@ -10,15 +10,17 @@ analyses_wrap <- function(pseq,
                           fcs,
                           outdir,
                           outfile_extension,
-                          taxa_level,
+                          unit_level,
                           factor_interaction = TRUE,
                           rarefaction = FALSE) {
   factor_results_list <- list()
   PERMANOVA_result_file <- glue("{outdir}/PERMANOVA_{outfile_extension}.txt")
-  adonis_text_header_extension <- if (taxa_level == "woltka") {
+  adonis_text_header_extension <- if (unit_level == "woltka_KO") {
     glue("for Woltka functional profiling (KEGG KO counts)")
+  } else if (unit_level == "woltka_pathways") {
+    glue("for Woltka functional profiling (KEGG pathways)")
   } else {
-    glue("for taxa level {str_to_upper(taxa_level)}")
+    glue("for taxa level {str_to_upper(unit_level)}")
   }
   adonis_text_header <- glue("PERMANOVA via vegan::adonis2 {adonis_text_header_extension}\n\n", .trim = FALSE)
   cat(adonis_text_header, file = PERMANOVA_result_file)
@@ -46,10 +48,12 @@ analyses_wrap <- function(pseq,
   sink()
 
   for (fc in fcs) {
-    subtitle <- if (taxa_level == "woltka") {
+    subtitle <- if (unit_level == "woltka_KO") {
       "Woltka functional profiling (KEGG KO counts)"
+    } else if (unit_level == "woltka_pathways") {
+      "Woltka functional profiling (KEGG pathways)"
     } else {
-      glue("Taxonomic rank: {taxa_level}")
+      glue("Taxonomic rank: {unit_level}")
     }
 
     homog_test <- anova(betadisper(dist, meta[[fc]]))
@@ -77,13 +81,13 @@ analyses_wrap <- function(pseq,
 
 add_row_to_summary <- function(result_list,
                                summary_file,
-                               taxa_level,
+                               add_row,
                                seq_depth,
                                subset) {
   for (fc in names(result_list)){
     summary_file <- summary_file |>
       add_row(meta_factor = fc,
-              taxa_level = taxa_level,
+              unit_level = unit_level,
               sequence_depth = seq_depth,
               subset = subset,
               homogeneity_pval = result_list[[fc]]$homog_pval,
