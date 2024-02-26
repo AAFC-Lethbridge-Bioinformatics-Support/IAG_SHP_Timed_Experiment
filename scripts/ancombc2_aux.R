@@ -205,7 +205,8 @@ ancombc_wrap_process <- function(pseq, factors, outdir, subtitle="", filename_ap
     meta_var = "Process.character",
     factors = factors,
     outdir = outdir,
-    method = "pairwise"
+    method = "pairwise",
+    filename_append = filename_append
   )
   ancom_tidy <- tidy_ancombc_res_pair(ancom_result,meta_var = "Process.character")
 

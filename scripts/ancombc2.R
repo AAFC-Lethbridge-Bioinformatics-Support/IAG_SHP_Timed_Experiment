@@ -61,7 +61,8 @@ get_initial_factors <- function(seq_depth = c("shallow", "deep"),
 }
 
 # Wrapper for all the month ancombc2 analysis calls
-call_month_analyses <- function(pseq, factors, subtitle, taxa_out, seq_depth) {
+call_month_analyses <- function(pseq, subtitle, taxa_out, seq_depth) {
+  factors <- get_initial_factors(seq_depth, "month")
   ancombc_wrap_month(pseq = subset_samples(pseq$base, Process=="Ground"),
                      factors = factors,
                      subtitle = subtitle,
@@ -138,8 +139,7 @@ for (seq_depth in c("shallow", "deep")) {
 
     # Metavariable: Month ----
     pseq <- create_phyloseq(counts, timed_meta)
-    month_factors <- get_initial_factors(seq_depth, "month")
-    call_month_analyses(pseq, month_factors, subtitle, taxa_out, seq_depth)
+    call_month_analyses(pseq, subtitle, taxa_out, seq_depth)
 
     # Metavariable: Process ----
     # Change Process to character because ANCOMBC2 doesn't work best with ordered factor
@@ -157,16 +157,20 @@ for (seq_depth in c("shallow", "deep")) {
       csv_paths <- Sys.glob(glue("{taxa_out}/*.csv"))
       lapply(csv_paths, \(x) {
         csv <- read_csv(x)
-        joined <- left_join(csv, counts$gene_key, by = join_by(taxon == ko_gene_ID))
-        write_csv(joined, x)
+        if (!"name" %in% colnames(csv)) {
+          joined <- left_join(csv, counts$gene_key, by = join_by(taxon == ko_gene_ID))
+          write_csv(joined, x)
+        }
       })
     }
     if (unit_level == "woltka_pathways") {
       csv_paths <- Sys.glob(glue("{taxa_out}/*.csv"))
       lapply(csv_paths, \(x) {
         csv <- read_csv(x)
-        joined <- left_join(csv, counts$pathway_key, by = join_by(taxon == pathwayID))
-        write_csv(joined, x)
+        if (!"pathway_name" %in% colnames(csv)) {
+          joined <- left_join(csv, counts$pathway_key, by = join_by(taxon == pathway_ID))
+          write_csv(joined, x)
+        }
       })
     }
   }
