@@ -89,6 +89,9 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=
       select(-c(lineage_tokens, final_2_tokens))
   }
 
+  taxa_1_filtered <- taxa_1_filtered |>
+    mutate(classified_percent = reads/sum(reads), .by = sample)
+
   # apply 0.01% per-sample threshold
   if (min_filter) {
     taxa_1_filtered <- taxa_1_filtered |>
@@ -96,7 +99,7 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=
   }
 
   taxa_2_wide <- taxa_1_filtered |>
-    select(-c(file, taxon_id, percent)) |>
+    select(-c(file, taxon_id, percent, classified_percent)) |>
     pivot_wider(names_from = taxon_name, values_from = reads)
 
   taxa_matrix <- taxa_2_wide |>

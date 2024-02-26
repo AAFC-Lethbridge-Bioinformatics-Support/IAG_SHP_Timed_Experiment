@@ -45,7 +45,7 @@ for (taxa_level in c("phylum", "genus")) {
 
 
   taxa_wide <- taxa |>
-    select(-c(file, taxon_id, percent)) |>
+    select(-c(file, taxon_id, percent, classified_percent)) |>
     pivot_wider(names_from = taxon_name, values_from = reads)
 
   taxa_matrix <- select(taxa_wide, -c(sequencing_depth)) |>
