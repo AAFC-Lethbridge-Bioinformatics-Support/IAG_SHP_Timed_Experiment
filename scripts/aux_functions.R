@@ -51,8 +51,9 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
 get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=TRUE){
   taxa_long <- if(sequence_depth == "shallow"){
     read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
+    read_tsv(glue("data/kaiju_shallow/kaiju_{taxa_level}_summary.tsv"))
   } else if(sequence_depth == "deep"){
-    read_tsv(glue("data/deep_Timed/kaiju_{taxa_level}_summary.tsv"))
+    read_tsv(glue("data/kaiju_deep/kaiju_{taxa_level}_summary.tsv"))
   } else {
     stop("Error: sequence depth should be specified as 'shallow' or 'deep'")
   }
@@ -112,7 +113,7 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=
 # Read the woltka KO data, process and format it, then return a named list with
 # several formats: long (tidy) counts, wide (genes as columns), and wide matrix
 get_processed_KO <- function(meta) {
-  ko <- read_tsv("data/ko_rpk_filtered-0-001p.tsv") |>
+  ko <- read_tsv("data/woltka_results/ko_filtered-0-01p.tsv") |>
     relocate("Name") |>
     rename("name" = Name,
            "ko_gene_ID" = `#FeatureID`)
@@ -150,13 +151,27 @@ get_processed_KO <- function(meta) {
 # with several formats: long (tidy) counts, wide (pathways as columns), and wide
 # matrix
 get_processed_pathways <- function(meta) {
-  pw_names <- read_tsv("data/pathway_names.tsv")
-  pw_counts <- read_tsv("data/pathway_rpk_filtered-0-001p.tsv") |>
-    rename("pathwayID" = `#FeatureID`)
+
+  # Names from woltka workflow kegg_query.py
+  pw_names <- read_tsv("data/woltka_results/pathway_name.txt",
+                       col_names = FALSE)
+  colnames(pw_names) <- c("pathway_ID","pathway_name")
+  # Pathway ID to pathway class/groups from woltka workflow kegg_query.py
+  pw_groups <- read_tsv("data/woltka_results/pathway-to-class.txt",
+                        col_names = FALSE)
+  colnames(pw_groups) <- c("pathway_ID","pathway_class", "pathway_group")
+  # pathway-to-class.txt misses global/overiew group, so add this manually
+  pw_global_overview_group <- read_tsv("data/woltka_results/global_and_overview_pathways.txt")
+  pw_groups <- full_join(pw_groups, pw_global_overview_group)
+
+  pw_names_full <- left_join(pw_names, pw_groups)
+
+  pw_counts <- read_tsv("data/woltka_results/pathways_filtered-0-01p.tsv") |>
+    rename("pathway_ID" = `#FeatureID`)
 
   # add pathway names and groups
   pw_counts <- pw_counts |>
-    left_join(pw_names)
+    left_join(pw_names_full)
 
   # Pivot longer and get relative abundance
   pw_long <- pw_counts |>
@@ -168,12 +183,12 @@ get_processed_pathways <- function(meta) {
   pw_long_filtered <- pw_long |>
     filter(sample != "S00JY-0597" & sample %in% filter(meta, Year == 2020)$sample)
 
-  pathway_key <- pw_long_filtered |> distinct(pathwayID, pathway_name, pathway_group)
+  pathway_key <- pw_long_filtered |> distinct(pathway_ID, pathway_name, pathway_group, pathway_class)
 
   # Pivot for samples as rows
   pw_wide <- pw_long_filtered |>
     pivot_wider(id_cols = sample,
-                names_from = pathwayID,
+                names_from = pathway_ID,
                 values_from = reads)
 
   pw_matrix <- pw_wide |>
