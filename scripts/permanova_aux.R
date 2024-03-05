@@ -81,7 +81,7 @@ analyses_wrap <- function(pseq,
 
 add_row_to_summary <- function(result_list,
                                summary_file,
-                               add_row,
+                               unit_level,
                                seq_depth,
                                subset) {
   for (fc in names(result_list)){
