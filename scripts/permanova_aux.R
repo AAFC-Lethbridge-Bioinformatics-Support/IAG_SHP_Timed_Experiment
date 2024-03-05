@@ -10,15 +10,17 @@ analyses_wrap <- function(pseq,
                           fcs,
                           outdir,
                           outfile_extension,
-                          taxa_level,
+                          unit_level,
                           factor_interaction = TRUE,
                           rarefaction = FALSE) {
   factor_results_list <- list()
   PERMANOVA_result_file <- glue("{outdir}/PERMANOVA_{outfile_extension}.txt")
-  adonis_text_header_extension <- if (taxa_level == "woltka") {
+  adonis_text_header_extension <- if (unit_level == "woltka_KO") {
     glue("for Woltka functional profiling (KEGG KO counts)")
+  } else if (unit_level == "woltka_pathways") {
+    glue("for Woltka functional profiling (KEGG pathways)")
   } else {
-    glue("for taxa level {str_to_upper(taxa_level)}")
+    glue("for taxa level {str_to_upper(unit_level)}")
   }
   adonis_text_header <- glue("PERMANOVA via vegan::adonis2 {adonis_text_header_extension}\n\n", .trim = FALSE)
   cat(adonis_text_header, file = PERMANOVA_result_file)
@@ -46,10 +48,12 @@ analyses_wrap <- function(pseq,
   sink()
 
   for (fc in fcs) {
-    subtitle <- if (taxa_level == "woltka") {
+    subtitle <- if (unit_level == "woltka_KO") {
       "Woltka functional profiling (KEGG KO counts)"
+    } else if (unit_level == "woltka_pathways") {
+      "Woltka functional profiling (KEGG pathways)"
     } else {
-      glue("Taxonomic rank: {taxa_level}")
+      glue("Taxonomic rank: {unit_level}")
     }
 
     homog_test <- anova(betadisper(dist, meta[[fc]]))
@@ -77,13 +81,13 @@ analyses_wrap <- function(pseq,
 
 add_row_to_summary <- function(result_list,
                                summary_file,
-                               taxa_level,
+                               unit_level,
                                seq_depth,
                                subset) {
   for (fc in names(result_list)){
     summary_file <- summary_file |>
       add_row(meta_factor = fc,
-              taxa_level = taxa_level,
+              unit_level = unit_level,
               sequence_depth = seq_depth,
               subset = subset,
               homogeneity_pval = result_list[[fc]]$homog_pval,
@@ -186,3 +190,127 @@ run_adonis <- function(otu, meta, fcs, factor_interaction=TRUE, n_permutations =
                        ...)
 }
 
+# Save and return an NMDS plot
+plot_nmds_by_factor <- function(df,
+                                meta_factor,
+                                dataset_name = "",
+                                facet_factor = "",
+                                shape_factor = "",
+                                polygon = FALSE,
+                                remove_NA = TRUE,
+                                save_image = FALSE,
+                                save_path = "nmds.png",
+                                subtitle = "",
+                                appended_naming = FALSE) {
+
+  if (remove_NA) { df %<>% drop_na(meta_factor) }
+
+  plot <- create_nmds_plot_by_factor(
+    original_df = df,
+    meta_factor = meta_factor,
+    dataset_name = dataset_name,
+    facet_factor = facet_factor,
+    shape_factor = shape_factor,
+    polygon = polygon,
+    plot_subtitle = subtitle
+  )
+
+  if (save_image) {
+    if (appended_naming) {
+      if (polygon) save_path %<>% str_replace(".png", "_polygons.png")
+      if (!remove_NA) save_path %<>% str_replace(".png", "_with_NA.png")
+    }
+    if (facet_factor != "") {
+      save_path %<>% str_replace(".png", glue("_by_{facet_factor}.png"))
+    }
+    tryCatch({
+      ggsave(plot = plot,
+             filename = save_path,
+             bg = "white",
+             width = 10, height = 7.8)
+    },
+    error = function(cond) { message(cond) },
+    finally = {})
+  }
+
+  return(plot)
+}
+
+
+create_nmds_plot_by_factor <- function(original_df,
+                                       meta_factor,
+                                       dataset_name,
+                                       facet_factor,
+                                       shape_factor,
+                                       polygon,
+                                       plot_subtitle) {
+
+  df <- original_df
+  meta_var <- sym(meta_factor)
+
+  is_faceted <- facet_factor != ""
+  if (is_faceted) { facet_var <- sym(facet_factor) }
+  is_shapes <- shape_factor != ""
+  if (is_shapes) {
+    shapes_var <- sym(shape_factor)
+  }
+
+  plot_title <- ifelse(dataset_name == "",
+                       glue("NMDS ordination by factor {meta_factor}"),
+                       glue("NMDS ordination of {dataset_name} samples by factor {meta_factor}"))
+  if (is_faceted) {
+    plot_title %<>% paste(glue("across {facet_factor}"))
+  }
+
+  plot <- df %>%
+    ggplot(aes(x = NMDS1, y = NMDS2), na.rm = TRUE) +
+    theme(axis.text.y = element_text(colour = "black", size = 12, face = "bold"),
+          axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+          legend.text = element_text(size = 12, face ="bold", colour ="black"),
+          legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+          axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+          legend.title = element_text(size = 14, colour = "black", face = "bold"),
+          panel.background = element_blank(),
+          legend.key=element_blank()) +
+    theme_bw() +
+    labs(x = "NMDS1", y = "NMDS2", colour = meta_factor,
+         title = plot_title,
+         subtitle = plot_subtitle)
+
+  if (is_faceted) {
+    plot <- plot + facet_wrap(vars(!!facet_var))
+  }
+
+  if (is.numeric(df[[meta_factor]])) {
+    plot <- plot +
+      scale_fill_viridis_c() +
+      scale_color_viridis_c()
+  } else {
+    plot <- plot +
+      scale_color_manual(values=color_palette) +
+      scale_fill_manual(values=color_palette)
+  }
+  if (polygon) {
+    if (is_faceted) {
+      hull <- group_by(df, !!facet_var, !!meta_var)
+    } else {
+      hull <- group_by(df, !!meta_var)
+    }
+    hull <- hull %>%
+      slice(grDevices::chull(NMDS1, NMDS2))
+    plot <- plot +
+      geom_polygon(data = hull, alpha = 0.1, aes(color = !!meta_var), fill = NA, linewidth = 1.5)
+    # plot <- plot + stat_ellipse(mapping = aes(color = !!meta_var), size = 2, alpha = 0.5, type = "t")
+  }
+
+  if (is_shapes) {
+    plot <- plot + geom_point(mapping = aes(fill = !!meta_var, shape = !!shapes_var),
+                              size = 3, alpha = 0.7, na.rm = TRUE) +
+      scale_shape_manual(values = c(21,24,23,22))
+  } else {
+    plot <- plot + geom_point(mapping = aes(fill = !!meta_var),
+                              size = 3, alpha = 0.7, na.rm = TRUE, shape = 21)
+  }
+
+  plot
+}

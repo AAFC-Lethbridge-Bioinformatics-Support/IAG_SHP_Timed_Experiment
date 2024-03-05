@@ -5,24 +5,28 @@ library(glue)
 
 source("scripts/aux_functions.R")
 
+main_out <- "results/unclassified_plots"
+dir.create(main_out, recursive = TRUE)
+
+
 # Read in  ----------------------------------------------------------------
 timed_meta <- get_timed_metadata()
 
 
 # 1. Read in kaiju tables --------------------------------------------------
 
-shallow_path <- "../pipeline_outputs/shallow_719_all_datasets"
+shallow_path <- "data/kaiju_shallow"
 shallow_phylum_long <- read_tsv(glue("{shallow_path}/kaiju_phylum_summary.tsv"))
-# shallow class results missing
+shallow_class_long <- read_tsv(glue("{shallow_path}/kaiju_class_summary.tsv"))
 shallow_order_long <- read_tsv(glue("{shallow_path}/kaiju_order_summary.tsv"))
 shallow_family_long <- read_tsv(glue("{shallow_path}/kaiju_family_summary.tsv"))
 shallow_genus_long <- read_tsv(glue("{shallow_path}/kaiju_genus_summary.tsv"))
 shallow_species_long <- read_tsv(glue("{shallow_path}/kaiju_species_summary.tsv"))
 
-shallow_taxa_tables <- list(shallow_phylum_long, shallow_order_long,
+shallow_taxa_tables <- list(shallow_phylum_long, shallow_class_long, shallow_order_long,
                             shallow_family_long, shallow_genus_long, shallow_species_long)
 
-deep_path <- "data/deep_Timed/"
+deep_path <- "data/kaiju_deep/"
 phylum_long <- read_tsv(glue("{deep_path}/kaiju_phylum_summary.tsv"))
 class_long <- read_tsv(glue("{deep_path}/kaiju_class_summary.tsv"))
 order_long <- read_tsv(glue("{deep_path}/kaiju_order_summary.tsv"))
@@ -69,7 +73,7 @@ deep_unclassified$taxa_rank <- ordered(deep_unclassified$taxa_rank,
 ## Shallow samples ----
 shallow_unclassified_list <- lapply(X = shallow_taxa_tables,
                             FUN = filter_unclassified)
-shallow_unclassified_list <- mapply(mutate_cols, shallow_unclassified_list, all_taxa_ranks[all_taxa_ranks != "class"],
+shallow_unclassified_list <- mapply(mutate_cols, shallow_unclassified_list, all_taxa_ranks,
                             SIMPLIFY = FALSE)
 
 shallow_unclassified <- bind_rows(shallow_unclassified_list)
@@ -81,22 +85,10 @@ shallow_unclassified$taxa_rank <- ordered(shallow_unclassified$taxa_rank,
 
 # 4. Create plots ---------------------------------------------------------
 
-## Plot functions ----
-unclassified_violin <- function(df, subtitle) {
-  df |>
-    summarize(percent_unclassified = sum(percent), .by = c(sample, taxa_rank)) |>
-    inner_join(timed_meta) |>
-    ggplot(aes(x = taxa_rank, y = percent_unclassified)) +
-    geom_boxplot() +
-    geom_jitter(aes(color = Depth), size=1, alpha=0.4) +
-    labs(title = "Distribution of % unclassified reads at each taxa rank",
-         subtitle = subtitle,
-         x = "Taxa rank")
-}
 unclassified_components_box <- function(df, subtitle) {
   df |>
     inner_join(timed_meta) |>
-    filter(taxa_rank != "species") |>
+    filter(taxon_name %in% c("cannot","unclassified","Viruses")) |>
     ggplot(aes(y = percent, x = Depth)) +
     geom_boxplot() +
     labs(title = "Distribution of % unclassified reads breakdown by soil depth",
@@ -106,19 +98,29 @@ unclassified_components_box <- function(df, subtitle) {
     geom_jitter(aes(color = Depth), size=1, alpha=0.6)  +
     facet_grid(taxon_name ~ taxa_rank, scales = "free_y")
 }
-# Plot violin distributions of % unclassified across taxa levels
 
 ## Create plots ----
-deep_v_plot <- unclassified_violin(deep_unclassified, "All 42 deep metagenomic samples - Timed dataset")
-shallow_v_plot <- unclassified_violin(shallow_unclassified, "All 124 shallow metagenomic samples - Timed dataset")
 
-deep_v_plot
-shallow_v_plot
+# combined
+du2 <- deep_unclassified |> mutate(seq_depth = "deep")
+su2 <- shallow_unclassified |> mutate(seq_depth = "shallow")
+all_depths_unclassified <- bind_rows(du2, su2)
+all_depths_unclassified_plot <- all_depths_unclassified |>
+  summarize(percent_unclassified = sum(percent), .by = c(sample, taxa_rank, seq_depth)) |>
+  inner_join(timed_meta) |>
+  ggplot(aes(x = factor(seq_depth, levels=c("shallow","deep")), y = percent_unclassified)) +
+  geom_boxplot() +
+  geom_jitter(aes(color = Depth), size=1, alpha=0.4) +
+  labs(title = "Percentage of unclassified reads at each taxa rank",
+       x = "Sequencing depth",
+       y = "Percent unclassified",
+       color = "Soil depth") +
+  facet_grid(.~taxa_rank)
+ggsave(glue("{main_out}/unclassified_percents.png"), all_depths_unclassified_plot, width = 8)
 
+uc_components_deep_plot <- unclassified_components_box(deep_unclassified, "All 42 deep metagenomic samples - Timed dataset")
+uc_components_shallow_plot <- unclassified_components_box(shallow_unclassified, "All 124 shallow metagenomic samples - Timed dataset")
 
-deep_box <- unclassified_components_box(deep_unclassified, "All 42 deep metagenomic samples - Timed dataset")
-shallow_box <- unclassified_components_box(shallow_unclassified |> filter(taxa_rank == "phylum"), "All 124 shallow metagenomic samples - Timed dataset")
-
-deep_box
+uc_components_deep_plot
 shallow_box
 

@@ -1,5 +1,5 @@
 data/*
-results/*
+results*/*
 
 *.Rproj
 
@@ -52,3 +52,5 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+scripts/archived/

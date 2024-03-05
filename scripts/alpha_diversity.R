@@ -18,7 +18,7 @@ library(dunn.test)
 source("scripts/aux_functions.R")
 source("scripts/alpha_diversity_aux.R")
 
-main_out <- glue("results/alpha_diversity")
+main_out <- glue("results/alpha_diversity_unfiltered")
 timed_meta <- get_timed_metadata()
 
 # Analysis loops for taxa counts
@@ -30,21 +30,28 @@ for (seq_depth in c("shallow", "deep")) {
     # Create output directories
     lapply(c(main_out, depth_out, taxa_out), dir.create, recursive = TRUE, showWarnings = FALSE)
 
-    taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level, timed_meta)
-    taxa_counts$wide[is.na(taxa_counts$wide)] <- 0
+    taxa_counts <- get_processed_taxonomy(seq_depth, taxa_level, timed_meta, min_filter = FALSE)
+    pseq <- create_phyloseq(taxa_counts, timed_meta)
 
-    make_all_alpha_plots(taxa_counts$wide,
+    make_all_alpha_plots(pseq = pseq$base,
                          outdir = taxa_out,
                          subtitle=glue("Taxonomic rank: {taxa_level}"))
   }
 }
 
-# Analysis of functional profiles
-woltka_out <- glue("{main_out}/woltka/")
-dir.create(woltka_out)
+# Alpha div on functional profiles
+#
+# Phyloseq alpha-div estimate function doesn't work on fractional values
+# (non-integer), which Woltka counts are due to normalization for gene length
+# (RPK). Additionally, alpha diversity measurements should be taken with
+# unfiltered count data, but a minimum filter was applied at the Woltka analysis
 
-ko_counts <- get_processed_KO(timed_meta)
-
-make_all_alpha_plots(ko_counts$wide,
-                     outdir = woltka_out,
-                     subtitle = "Functional profile (KO)")
+# woltka_out <- glue("{main_out}/woltka/")
+# dir.create(woltka_out)
+#
+# ko_counts <- get_processed_KO(timed_meta)
+# pseq <- create_phyloseq(ko_counts, timed_meta)
+#
+# make_all_alpha_plots(pseq$base,
+#                      outdir = woltka_out,
+#                      subtitle = "Functional profile (KO)")
