@@ -50,7 +50,6 @@ get_timed_metadata <- function(path = "../metadata/Metadata-IAG-Timed2-v3_2.csv"
 # a matrix (NAs set to 0)
 get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=TRUE){
   taxa_long <- if(sequence_depth == "shallow"){
-    read_tsv(glue("data/shallow_taxonomy/kaiju_{taxa_level}_summary.tsv"))
     read_tsv(glue("data/kaiju_shallow/kaiju_{taxa_level}_summary.tsv"))
   } else if(sequence_depth == "deep"){
     read_tsv(glue("data/kaiju_deep/kaiju_{taxa_level}_summary.tsv"))
@@ -61,13 +60,13 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=
   # Reformat and filter some columns.
   # Remove pre-2020 samples, filter unclassified taxa, remove suspect sample
   # 0597
-  taxa_1_filtered <- taxa_long |>
+  taxa_filtered_samples <- taxa_long |>
     mutate(sample = str_extract(file, "S00JY-\\d{4}")) |>
     filter(sample != "S00JY-0597") |>
-    filter(sample %in% filter(meta, Year == 2020)$sample) |>
+    filter(sample %in% filter(meta, Year == 2020)$sample)
+
+  taxa_1_filtered <- taxa_filtered_samples |>
     filter(!str_detect(taxon_name, "unclassified$|^cannot|Viruses|[ ;]bacterium[; ]"))
-
-
 
     # Shorten lineage to the name at the relevant taxa level
   if (taxa_level == "phylum") {
@@ -107,7 +106,7 @@ get_processed_taxonomy <- function(sequence_depth, taxa_level, meta, min_filter=
     as.matrix()
   taxa_matrix[is.na(taxa_matrix)] <- 0
 
-  list(raw = taxa_long,
+  list(raw = taxa_filtered_samples,
        filtered = taxa_1_filtered,
        wide = taxa_2_wide,
        matrix = taxa_matrix)
